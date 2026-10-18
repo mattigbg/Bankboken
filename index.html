@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hushållskassan</title>
+<meta name="description" content="Månadsbudget: fördela inkomsten, registrera köp och se vad som är kvar.">
+<meta name="theme-color" content="#EDF0F3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E151C" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Budget">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@500&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><b>Hushållskassan</b><span class="sync" id="sync">Startar…</span></div>
+    <div class="monthnav" id="monthnav" hidden>
+      <button class="navbtn" id="prevBtn" aria-label="Föregående månad">‹</button>
+      <h1 id="monthTitle">&nbsp;</h1>
+      <button class="navbtn" id="nextBtn" aria-label="Nästa månad">›</button>
+    </div>
+    <div class="meta" id="meta" hidden>
+      <span id="period"></span>
+      <button class="btn ghost" id="todayBtn" hidden>Till aktuell månad</button>
+    </div>
+  </header>
+
+  <div class="notice" id="notice" hidden></div>
+
+  <form id="login" class="empty login" hidden autocomplete="on">
+    <img class="logo" src="icons/apple-touch-icon.png" alt="" width="64" height="64">
+    <h2>Logga in</h2>
+    <p>Din budget är privat. Ingen annan som loggar in kan se den.</p>
+    <p class="msg" id="loginErr" hidden></p>
+    <label class="lf">E-post<input class="field" id="le" type="email" autocomplete="email" autocapitalize="off" required></label>
+    <label class="lf">Lösenord<input class="field" id="lp" type="password" autocomplete="current-password" required></label>
+    <button class="btn primary" type="submit" id="loginBtn">Logga in</button>
+    <button class="btn ghost" type="button" id="forgotBtn">Glömt lösenordet?</button>
+  </form>
+
+  <section id="loading" class="empty"><p>Hämtar din budget…</p></section>
+
+  <section id="empty" class="empty" hidden>
+    <div>
+      <span class="label">Ny månad</span>
+      <h2 id="emptyTitle">Ingen budget för den här månaden än</h2>
+    </div>
+    <p>Lägg upp inkomster och fördela pengarna på kategorier. Målet är att varje krona får en uppgift: när det fördelade beloppet är lika med inkomsten går budgeten jämnt ut.</p>
+    <div class="choices">
+      <button class="choice primary" id="copyPrevBtn"><b id="copyPrevLabel">Kopiera förra månaden</b><span>Samma inkomster, kategorier och belopp. Köpen börjar om från noll.</span></button>
+      <button class="choice" id="templateBtn"><b>Använd standardmall</b><span>18 vanliga kategorier med förslag på belopp för ett hushåll med en inkomst. Justera efter dina siffror.</span></button>
+      <button class="choice" id="blankBtn"><b>Börja från noll</b><span>Samma kategorier som mallen, alla belopp satta till 0 kr.</span></button>
+    </div>
+    <p class="msg" id="emptyMsg" hidden></p>
+    <div class="preview" id="templatePreview" aria-label="Kategorier i mallen"></div>
+  </section>
+
+  <section id="budget" hidden>
+    <div class="wrap">
+      <div class="summary">
+        <div class="sumgrid">
+          <div class="big">
+            <span class="label">Kvar av budgeten</span>
+            <div class="num" id="sLeft">0 kr</div>
+            <small id="sPace"></small>
+          </div>
+          <div class="stat"><span class="label">Inkomster</span><div class="num" id="sIncome">0 kr</div><small id="sIncomeN"></small></div>
+          <div class="stat"><span class="label">Fördelat</span><div class="num" id="sPlanned">0 kr</div><small id="sUnassigned"></small></div>
+          <div class="stat"><span class="label">Spenderat</span><div class="num" id="sSpent">0 kr</div><small id="sSpentPct"></small></div>
+        </div>
+        <div class="monthbar" role="img" aria-label="Spenderat jämfört med fördelat">
+          <div class="plan" id="mbPlan"></div><div class="spent" id="mbSpent"></div><div class="pace" id="mbPace" hidden></div>
+        </div>
+        <div class="legend">
+          <span><i class="sw-spent"></i>Spenderat</span>
+          <span><i class="sw-plan"></i>Fördelat</span>
+          <span><i class="sw-pace"></i>Dagens datum i månaden</span>
+        </div>
+      </div>
+
+      <div class="cols">
+        <div class="panel">
+          <div class="panel-head"><h2>Kategorier</h2><span class="muted">Tryck på namn eller belopp för att ändra</span></div>
+          <div id="cats"></div>
+          <form class="addrow" id="addCatForm" autocomplete="off">
+            <input class="field" id="newCatName" placeholder="Ny kategori, t.ex. Tandläkare" aria-label="Namn på ny kategori">
+            <select class="field" id="newCatGroup" aria-label="Grupp"></select>
+            <input class="field amt" id="newCatPlan" inputmode="decimal" placeholder="0 kr" aria-label="Belopp">
+            <button class="btn" type="submit">Lägg till</button>
+          </form>
+        </div>
+
+        <div class="wrap side">
+          <div class="panel">
+            <div class="panel-head"><h2>Registrera köp</h2></div>
+            <form class="addtx" id="addTxForm" autocomplete="off">
+              <label class="full">Belopp<input class="field bigamt amt" id="txAmount" inputmode="decimal" placeholder="0 kr"></label>
+              <label>Kategori<select class="field" id="txCat"></select></label>
+              <label>Datum<input class="field" id="txDate" type="date"></label>
+              <label class="full">Anteckning<input class="field" id="txNote" placeholder="t.ex. ICA Maxi, veckohandling"></label>
+              <button class="btn primary full" type="submit">Lägg till köp</button>
+              <p class="msg full" id="txMsg" hidden></p>
+            </form>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>Inkomster</h2><span class="muted" id="incTotal"></span></div>
+            <div id="incomes" class="stack"></div>
+            <button class="btn" id="addIncBtn" type="button">+ Lägg till inkomst</button>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>Köp</h2>
+              <select class="field auto" id="txFilter" aria-label="Visa kategori"></select>
+            </div>
+            <div class="txlist" id="txList"></div>
+          </div>
+
+          <div class="panel settings">
+            <span class="label">Inställningar</span>
+            <label for="startDay">Budgetmånaden börjar
+              <select class="field auto" id="startDay">
+                <option value="1">den 1:a</option>
+                <option value="25">den 25:e (lönedagen)</option>
+              </select>
+            </label>
+            <button class="btn" id="csvBtn" type="button">Exportera månadens köp (CSV)</button>
+            <div class="account" id="account" hidden>
+              <span class="muted" id="who"></span>
+              <div class="row">
+                <button class="btn" id="refreshBtn" type="button">Uppdatera nu</button>
+                <button class="btn" id="pwBtn" type="button">Byt lösenord</button>
+                <button class="btn danger" id="logoutBtn" type="button">Logga ut</button>
+              </div>
+            </div>
+            <p class="muted small" id="installTip" hidden>Installera på iPhone: öppna sidan i Safari, tryck på Dela och välj <b>Lägg till på hemskärmen</b>.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<dialog id="pwDialog">
+  <form id="pwForm" class="stack">
+    <h2 id="pwTitle">Byt lösenord</h2>
+    <label class="lf">Nytt lösenord<input class="field" id="np" type="password" minlength="6" autocomplete="new-password" required></label>
+    <p class="msg" id="pwErr" hidden></p>
+    <div class="row">
+      <button class="btn primary" type="submit">Spara lösenord</button>
+      <button class="btn ghost" type="button" id="pwCancel">Avbryt</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="vendor/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+  if ("serviceWorker" in navigator) {
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      // En ny version har tagit över: ladda om en gång så att den syns direkt.
+      if (hadController && !reloaded) { reloaded = true; location.reload(); }
+    });
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => {
+        const check = () => reg.update().catch(() => {});
+        document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
+        setInterval(check, 30 * 60 * 1000);
+      }).catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
