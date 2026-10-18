@@ -1,6 +1,6 @@
 {
-  "name": "Hushållskassan",
-  "short_name": "Budget",
+  "name": "Bankboken",
+  "short_name": "Bankboken",
   "description": "Månadsbudget: fördela inkomsten, registrera köp och se vad som är kvar.",
   "lang": "sv",
   "start_url": "./",

@@ -1,4 +1,4 @@
-# Hushållskassan: så kommer du igång
+# Bankboken: så kommer du igång
 
 Appen består av två delar, precis som Middagsboken:
 
@@ -32,7 +32,7 @@ Båda tjänsterna är gratis. Du gör stegen nedan en gång, och resten sköter 
 
    Skicka båda till Claude. Den nyckeln är gjord för att ligga i appen och är inte hemlig. Skicka **aldrig** nyckeln som heter `service_role` eller "Secret key".
 
-> Gratisplanen hos Supabase tillåter två aktiva projekt. Middagsboken och Hushållskassan blir de två.
+> Gratisplanen hos Supabase tillåter två aktiva projekt. Middagsboken och Bankboken blir de två.
 
 ## Del 2: Webbadressen (GitHub), cirka 5 minuter
 

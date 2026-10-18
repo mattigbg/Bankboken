@@ -1,4 +1,4 @@
--- Hushållskassan: kör hela den här filen en gång i Supabase (SQL Editor → New query → klistra in → Run).
+-- Bankboken: kör hela den här filen en gång i Supabase (SQL Editor → New query → klistra in → Run).
 
 -- 1. Tabeller. Varje rad tillhör en inloggad person (user_id).
 create table if not exists public.budget_months (

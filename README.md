@@ -1,4 +1,4 @@
-# Hushållskassan
+# Bankboken
 
 Månadsbudget: fördela inkomsten på kategorier, registrera köp och se vad som är kvar. Varje inloggad person har sin egen budget. Installeras på iPhone via "Lägg till på hemskärmen".
 

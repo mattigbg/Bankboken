@@ -445,7 +445,7 @@
       .concat(month.tx.slice().sort((a, b) => a.date.localeCompare(b.date))
         .map(t => [t.date, name(t.cat), t.note || "", String(t.amount).replace(".", ",")].map(q).join(";")));
     const blob = new Blob(["﻿" + rows.join("\r\n")], { type: "text/csv;charset=utf-8" });
-    const a = h("a", { href: URL.createObjectURL(blob), download: `hushallskassan-${cur}.csv` });
+    const a = h("a", { href: URL.createObjectURL(blob), download: `bankboken-${cur}.csv` });
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   };
