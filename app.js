@@ -24,7 +24,6 @@
   const nf0 = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 0 });
   const nf2 = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const kr = n => { const v = Math.round((n || 0) * 100) / 100; return (Number.isInteger(v) ? nf0 : nf2).format(v) + " kr"; };
-  const pct = n => Math.round(n * 100) + " %";
   const lsGet = (k, fb) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
   const lsDel = k => { try { localStorage.removeItem(k); } catch {} };
@@ -84,10 +83,10 @@
   }
 
   let toastTimer;
-  function toast(msg) {
+  function toast(msg, kind = "", ms = 2800) {
     document.querySelectorAll(".toast").forEach(n => n.remove());
-    const n = h("div", { class: "toast", role: "status", text: msg }); document.body.append(n);
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => n.remove(), 2600);
+    const n = h("div", { class: "toast " + kind, role: "status", text: msg }); document.body.append(n);
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => n.remove(), ms);
   }
   function setSync(text, kind = "") { const s = $("sync"); s.textContent = text; s.className = "sync " + kind; }
   const isNetworkError = e => !e || e.status === 0 || /fetch|network|load failed|offline/i.test(e.message || "");
@@ -143,7 +142,7 @@
             if (isNetworkError(res.error)) { setSync("Offline", "warn"); return; }
             if (isAuthError(res.error)) { await this.sb.auth.refreshSession().catch(() => {}); setSync("Logga in igen", "warn"); return; }
             console.error(res.error);
-            toast("En ändring kunde inte sparas: " + (res.error.message || "okänt fel"));
+            toast("En ändring kunde inte sparas: " + (res.error.message || "okänt fel"), "bad", 5000);
           }
           // Ändrades samma månad medan den sparades? Då skickas den igen.
           const now2 = JSON.stringify(op.k === "m" ? (this.months[op.id] || {}) : this.settings);
@@ -244,11 +243,21 @@
   }
 
   // ---------- visning ----------
+  let tab = lsGet("hk-tab", "home");
+  if (!["home", "tx", "budget", "more"].includes(tab)) tab = "home";
+
+  function setTab(t) {
+    tab = t; lsSet("hk-tab", t);
+    document.querySelectorAll("#tabbar button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === t ? "true" : "false"));
+    render(); window.scrollTo(0, 0);
+  }
+
   function render() {
+    if (!cur) return;
     const act = document.activeElement, fid = act && act.id; let sel = null;
     try { if (fid && act.selectionStart != null) sel = [act.selectionStart, act.selectionEnd]; } catch {}
     $("login").hidden = true;
-    $("monthnav").hidden = $("meta").hidden = false;
+    $("monthnav").hidden = false; $("tabbar").hidden = false;
     renderHeader();
     const month = M();
     // Ny månad som har börjat: skapa den automatiskt från den senaste budgeten.
@@ -257,11 +266,19 @@
       if (pk) { createMonth(mk.copy(store.months[pk])); toast(`${monthName(cur)} skapades från ${MONTHS[Number(pk.split("-")[1]) - 1]}`); return; }
     }
     const waiting = !month && !store.loaded;
-    $("loading").hidden = !waiting;
-    $("empty").hidden = waiting || !!month;
-    $("budget").hidden = !month;
+    const views = { home: "vHome", tx: "vTx", budget: "vBudget", more: "vMore" };
+    for (const [k, id] of Object.entries(views)) $(id).hidden = !(k === tab && (month || k === "more"));
+    $("loading").hidden = !(waiting && tab !== "more");
+    $("empty").hidden = !(!month && !waiting && tab !== "more");
+    $("fab").hidden = !month || tab === "more";
     if (!month && !waiting) renderEmpty();
-    if (month) renderBudget(month);
+    if (month) {
+      month.income ||= []; month.cats ||= []; month.tx ||= [];
+      const T = totals(month);
+      if (tab === "home") renderHome(month, T);
+      if (tab === "tx") renderTx(month);
+      if (tab === "budget") renderBudget(month, T);
+    }
     if (fid) { const el = $(fid); if (el && el !== document.activeElement) { el.focus({ preventScroll: true }); if (sel) try { el.setSelectionRange(...sel); } catch {} } }
   }
 
@@ -280,87 +297,145 @@
     const pk = prevMonthKey(cur);
     $("copyPrevLabel").textContent = pk ? `Kopiera ${MONTHS[Number(pk.split("-")[1]) - 1]}` : "Kopiera förra månaden";
     $("emptyIntro").textContent = pk && cur > currentKey()
-      ? `Månaden skapas automatiskt från den senaste budgeten när den börjar. Du kan också lägga upp den redan nu.`
+      ? "Månaden skapas automatiskt från den senaste budgeten när den börjar. Du kan också lägga upp den redan nu."
       : "Lägg upp inkomster och fördela pengarna på kategorier. Markera hyra, abonnemang och sparande som fasta utgifter, så räknas de som betalda varje månad och följer med automatiskt till nästa.";
-    $("emptyMsg").hidden = true;
-    $("templatePreview").replaceChildren(...TEMPLATE.cats.map(c => h("span", { text: c[0] })));
   }
 
   function totals(month) {
     const income = month.income.reduce((s, i) => s + (i.amount || 0), 0);
     const planned = month.cats.reduce((s, c) => s + (c.planned || 0), 0);
-    const spentBy = {}; let spent = 0;
-    for (const t of month.tx) { spentBy[t.cat || ""] = (spentBy[t.cat || ""] || 0) + t.amount; spent += t.amount; }
-    return { income, planned, spent, spentBy };
+    const spentBy = {}; let spent = 0, bills = 0;
+    for (const t of month.tx) {
+      spentBy[t.cat || ""] = (spentBy[t.cat || ""] || 0) + t.amount; spent += t.amount;
+      if (t.auto) bills += t.amount;
+    }
+    return { income, planned, spent, spentBy, bills };
   }
 
-  function renderBudget(month) {
-    month.income ||= []; month.cats ||= []; month.tx ||= [];
-    const T = totals(month), e = elapsed(cur);
+  // Status för en kategori: ok, warn (snabbare än månaden eller under 10 % kvar) eller bad (över).
+  function catState(planned, spent, f) {
+    const left = planned - spent, ratio = planned > 0 ? spent / planned : (spent > 0 ? 2 : 0);
+    if (left < -0.005) return "bad";
+    if (planned > 0 && left > 0.005 && (left / planned < 0.1 || (f > 0 && f < 1 && ratio > f + 0.15))) return "warn";
+    return "ok";
+  }
+  function leftText(planned, spent) {
+    const left = planned - spent;
+    if (planned === 0 && spent === 0) return ["–", "mute"];
+    if (Math.abs(left) < 0.005) return ["Klart", "mute"];
+    return left > 0 ? [`${kr(left)} kvar`, null] : [`${kr(-left)} över`, "bad"];
+  }
 
-    // sammanfattning
-    const left = T.planned - T.spent;
-    $("sLeft").textContent = kr(left); $("sLeft").classList.toggle("neg", left < 0);
-    $("sIncome").textContent = kr(T.income);
-    $("sIncomeN").textContent = month.income.length === 1 ? "1 inkomstkälla" : `${month.income.length} inkomstkällor`;
-    $("sPlanned").textContent = kr(T.planned);
+  function renderHome(month, T) {
+    const e = elapsed(cur), left = T.planned - T.spent;
+    $("hLeft").textContent = kr(left); $("hLeft").classList.toggle("neg", left < 0);
+    let daily;
+    if (e.f > 0 && e.f < 1) {
+      const daysLeft = e.days - e.day + 1;
+      daily = left > 0
+        ? h("span", { class: "pill " + (catState(T.planned, T.spent, e.f) === "warn" ? "warn" : "ok"), text: `≈ ${kr(Math.floor(left / daysLeft))} per dag i ${daysLeft} ${daysLeft === 1 ? "dag" : "dagar"}` })
+        : h("span", { class: "pill bad", text: "Budgeten är slut för den här månaden" });
+    } else if (e.f === 0) daily = h("span", { class: "pill mute", text: "Månaden har inte börjat än" });
+    else daily = h("span", { class: "pill " + (left >= 0 ? "ok" : "bad"), text: left >= 0 ? `Månaden slutade med ${kr(left)} kvar` : `Månaden slutade ${kr(-left)} över budget` });
+    $("hDaily").replaceChildren(daily);
+
+    const ratio = T.planned > 0 ? Math.min(T.spent / T.planned, 1) : 0;
+    $("hFill").style.width = ratio * 100 + "%";
+    $("hFill").classList.toggle("bad", T.spent > T.planned);
+    $("hPace").hidden = !(e.f > 0 && e.f < 1 && T.planned > 0);
+    $("hPace").style.left = `calc(${e.f * 100}% - 1px)`;
+    $("hBarWrap").setAttribute("aria-label", `${kr(T.spent)} spenderat av ${kr(T.planned)}`);
+    $("hSpent").textContent = `${kr(T.spent)} av ${kr(T.planned)} spenderat`;
+    const end = period(cur).end, next = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
+    $("hPayday").textContent = store.settings.startDay === 25 ? `Lön ${next.getDate()} ${SHORT[next.getMonth()]}` : `Slutar ${end.getDate()} ${SHORT[end.getMonth()]}`;
     const un = Math.round((T.income - T.planned) * 100) / 100;
-    $("sUnassigned").replaceChildren(
-      un === 0 ? h("span", { class: "chip ok", text: "Varje krona har en uppgift" })
-        : un > 0 ? h("span", { class: "chip warn", text: `${kr(un)} ofördelat` })
-          : h("span", { class: "chip bad", text: `${kr(-un)} över inkomsten` }));
-    $("sSpent").textContent = kr(T.spent);
-    $("sSpentPct").textContent = T.planned > 0 ? `${pct(T.spent / T.planned)} av det fördelade` : "Inget fördelat än";
-    const usedF = T.planned > 0 ? T.spent / T.planned : 0;
-    $("sPace").textContent = e.f > 0 && e.f < 1
-      ? `${pct(usedF)} av budgeten använd efter ${pct(e.f)} av månaden${usedF > e.f + 0.1 ? ", snabbare än takten" : ""}.`
-      : e.f === 0 ? "Månaden har inte börjat än." : (left >= 0 ? `Månaden slutade med ${kr(left)} kvar.` : `Månaden slutade ${kr(-left)} över budget.`);
-    const scale = Math.max(T.income, T.planned, T.spent, 1);
-    $("mbPlan").style.width = (T.planned / scale * 100) + "%";
-    $("mbSpent").style.width = (Math.min(T.spent, scale) / scale * 100) + "%";
-    $("mbSpent").classList.toggle("over", T.spent > T.planned);
-    const pace = $("mbPace"); pace.hidden = !(e.f > 0 && e.f < 1 && T.planned > 0);
-    pace.style.left = `calc(${T.planned / scale * e.f * 100}% - 1px)`;
+    const ub = $("hUnassigned"); ub.hidden = un === 0;
+    if (un !== 0) ub.replaceChildren(h("span", { text: un > 0 ? `${kr(un)} av inkomsten är inte fördelat` : `Du har fördelat ${kr(-un)} mer än inkomsten` }), h("span", { text: "›" }));
 
-    // kategorier
-    const wrap = $("cats"); wrap.replaceChildren();
-    const groups = [...GROUPS, ...new Set(month.cats.map(c => c.group).filter(g => !GROUPS.includes(g)))];
-    for (const g of groups) {
-      const cs = month.cats.filter(c => c.group === g); if (!cs.length) continue;
-      const gp = cs.reduce((s, c) => s + (c.planned || 0), 0), gs = cs.reduce((s, c) => s + (T.spentBy[c.id] || 0), 0);
-      wrap.append(h("div", { class: "group" },
-        h("div", { class: "ghead" }, h("h3", { text: g }), h("span", { text: `${kr(gs)} av ${kr(gp)}` })),
-        cs.map(c => catRow(month, c, T.spentBy[c.id] || 0, e.f))));
+    // rörliga kategorier
+    const vars = month.cats.filter(c => !c.fixed);
+    const order = c => { const i = GROUPS.indexOf(c.group); return i < 0 ? 99 : i; };
+    vars.sort((a, b) => order(a) - order(b));
+    $("hCats").replaceChildren(...(vars.length ? vars.map(c => {
+      const p = c.planned || 0, s = T.spentBy[c.id] || 0, st = catState(p, s, e.f), [lt, lk] = leftText(p, s);
+      const r = p > 0 ? Math.min(s / p, 1) : (s > 0 ? 1 : 0);
+      return h("button", { class: "hcat", type: "button", onclick: () => openSheet(c.id), "aria-label": `${c.name}: ${lt}. Lägg till köp` },
+        h("div", { class: "r1" }, h("span", { class: "nm", text: c.name }), h("span", { class: "lf2 " + (lk === "mute" ? "mute-t" : st + "-t"), text: lt })),
+        h("div", { class: "cbar" }, h("div", { class: "fill " + (st === "ok" ? "" : st), style: `width:${r * 100}%` }),
+          e.f > 0 && e.f < 1 && p > 0 ? h("div", { class: "pace", style: `left:calc(${e.f * 100}% - 1px)` }) : null),
+        h("div", { class: "r3", text: `${kr(s)} av ${kr(p)}` }));
+    }) : [h("p", { class: "muted", text: "Inga rörliga kategorier. Lägg till dem under Budget." })]));
+
+    // fasta utgifter
+    const fixed = month.cats.filter(c => c.fixed);
+    const hb = $("hBills"); hb.hidden = !fixed.length;
+    if (fixed.length) {
+      const fp = fixed.reduce((s, c) => s + (c.planned || 0), 0);
+      hb.replaceChildren(h("span", {}, h("b", { text: "Fasta utgifter " }), h("span", { class: "muted small", text: `${fixed.length} st · ${kr(fp)} · räknas som betalda` })), h("span", { text: "›" }));
     }
-    if (T.spentBy[""]) wrap.append(h("div", { class: "group" }, h("div", { class: "ghead" }, h("h3", { text: "Utan kategori" }), h("span", { text: kr(T.spentBy[""]) }))));
-    if (!month.cats.length) wrap.append(h("p", { class: "muted", text: "Inga kategorier än. Lägg till den första nedan." }));
 
-    // listor
-    fillCatSelect(month, $("txCat"), false);
+    // senaste köp
+    const recent = month.tx.filter(t => !t.auto).slice().sort((a, b) => b.date.localeCompare(a.date) || (b.at || 0) - (a.at || 0)).slice(0, 4);
+    $("hRecent").replaceChildren(...(recent.length ? recent.map(t => txRow(month, t, true)) : [h("p", { class: "muted small", text: "Inga köp än. Tryck på + för att lägga till." })]));
+  }
+
+  const catName = (month, id) => month.cats.find(c => c.id === id)?.name || "Utan kategori";
+  function dayLabel(d) {
+    const t = new Date(), y = new Date(t.getFullYear(), t.getMonth(), t.getDate() - 1);
+    if (d === iso(t)) return "I dag";
+    if (d === iso(y)) return "I går";
+    return fmtDay(d);
+  }
+  function txRow(month, t, withDate) {
+    const sub = t.auto ? "↻ Fast utgift" : t.note ? catName(month, t.cat) : "";
+    return h("div", { class: "tx" },
+      h("div", { class: "n" }, h("b", { text: t.auto ? catName(month, t.cat) : (t.note || catName(month, t.cat)) }),
+        h("span", { text: [withDate ? dayLabel(t.date) : "", sub].filter(Boolean).join(" · ") })),
+      h("span", { class: "a", text: kr(t.amount) }),
+      delBtn("tx-" + t.id, "Ta bort köp", () => { month.tx = month.tx.filter(x => x !== t); commit(); toast("Köpet är borttaget"); }));
+  }
+
+  function renderTx(month) {
     fillCatSelect(month, $("txFilter"), true);
-    const ng = $("newCatGroup"); if (!ng.options.length) ng.replaceChildren(...GROUPS.map(g => h("option", { value: g, text: g })));
-    const td = $("txDate"); if (!td.value || td.dataset.key !== cur) { td.value = defaultDate(); td.dataset.key = cur; }
+    const list = month.tx.filter(t => !txFilter || (t.cat || "") === (txFilter === "_none" ? "" : txFilter))
+      .slice().sort((a, b) => b.date.localeCompare(a.date) || (b.at || 0) - (a.at || 0));
+    const sum = list.reduce((s, t) => s + t.amount, 0);
+    $("txSum").textContent = list.length ? `${list.length} köp · ${kr(sum)}` : "";
+    const out = []; let last = null;
+    for (const t of list) {
+      if (t.date !== last) { out.push(h("div", { class: "dhead", text: dayLabel(t.date) })); last = t.date; }
+      out.push(txRow(month, t, false));
+    }
+    $("txList").replaceChildren(...(out.length ? out : [h("p", { class: "muted", text: txFilter ? "Inga köp i den här kategorin." : "Inga köp registrerade den här månaden." })]));
+  }
 
-    // inkomster
-    $("incTotal").textContent = kr(T.income);
+  function renderBudget(month, T) {
+    const e = elapsed(cur);
+    $("bIncome").textContent = kr(T.income);
+    $("bPlanned").textContent = kr(T.planned);
+    const un = Math.round((T.income - T.planned) * 100) / 100;
+    $("bUnassigned").replaceChildren(
+      un === 0 ? h("span", { class: "pill ok", text: "Varje krona har en uppgift" })
+        : un > 0 ? h("span", { class: "pill warn", text: `${kr(un)} kvar att fördela` })
+          : h("span", { class: "pill bad", text: `${kr(-un)} mer än inkomsten` }));
+
     $("incomes").replaceChildren(...month.income.map(i => h("div", { class: "inc" },
       h("input", { class: "flat", id: "iname-" + i.id, value: i.name, "aria-label": "Inkomstens namn", onchange: ev => { i.name = ev.target.value.trim() || "Inkomst"; commit(); } }),
       amountInput("iamt-" + i.id, "Belopp", () => i.amount, v => { i.amount = v; }),
       delBtn("inc-" + i.id, "Ta bort inkomst", () => { month.income = month.income.filter(x => x !== i); commit(); })
     )));
 
-    // köp
-    const list = month.tx.filter(t => !txFilter || (t.cat || "") === (txFilter === "_none" ? "" : txFilter))
-      .slice().sort((a, b) => b.date.localeCompare(a.date) || (b.at || 0) - (a.at || 0));
-    const catName = id => month.cats.find(c => c.id === id)?.name || "Utan kategori";
-    $("txList").replaceChildren(...(list.length ? list.map(t => h("div", { class: "tx" },
-      h("span", { class: "d", text: fmtDay(t.date) }),
-      t.auto
-        ? h("div", { class: "n" }, h("b", { text: catName(t.cat) }), h("span", { text: "↻ Fast utgift" }))
-        : h("div", { class: "n" }, h("b", { text: t.note || catName(t.cat) }), h("span", { text: t.note ? catName(t.cat) : "" })),
-      h("span", { class: "a", text: kr(t.amount) }),
-      delBtn("tx-" + t.id, "Ta bort köp", () => { month.tx = month.tx.filter(x => x !== t); commit(); })
-    )) : [h("p", { class: "muted", text: txFilter ? "Inga köp i den här kategorin." : "Inga köp registrerade den här månaden." })]));
+    const wrap = $("cats"); wrap.replaceChildren();
+    const groups = [...GROUPS, ...new Set(month.cats.map(c => c.group).filter(g => !GROUPS.includes(g)))];
+    for (const g of groups) {
+      const cs = month.cats.filter(c => c.group === g); if (!cs.length) continue;
+      const gp = cs.reduce((s, c) => s + (c.planned || 0), 0);
+      wrap.append(h("div", { class: "group" },
+        h("div", { class: "ghead" }, h("h3", { text: g }), h("span", { text: kr(gp) })),
+        cs.map(c => catRow(month, c, T.spentBy[c.id] || 0, e.f))));
+    }
+    if (!month.cats.length) wrap.append(h("p", { class: "muted", text: "Inga kategorier än. Lägg till den första nedan." }));
+    const ng = $("newCatGroup"); if (!ng.options.length) ng.replaceChildren(...GROUPS.map(g => h("option", { value: g, text: g })));
   }
 
   function amountInput(id, label, get, set) {
@@ -373,42 +448,32 @@
   }
 
   function catRow(month, c, spent, f) {
-    const p = c.planned || 0, ratio = p > 0 ? spent / p : (spent > 0 ? 2 : 0), left = p - spent;
-    let st = "ok";
-    if (left < -0.005) st = "bad";
-    else if (ratio < 1 && ratio > f + 0.15 && f > 0 && f < 1) st = "warn";
-    const leftEl = p === 0 && spent === 0 ? h("div", { class: "left mute c-left", text: "–" })
-      : Math.abs(left) < 0.005 ? h("div", { class: "left mute c-left", text: "Klart" })
-        : h("div", { class: `left ${st} c-left`, text: left > 0 ? `${kr(left)} kvar` : `${kr(-left)} över` });
+    const p = c.planned || 0, st = catState(p, spent, f), [lt, lk] = leftText(p, spent);
     return h("div", { class: "cat" },
       h("div", { class: "c-name" }, h("input", { class: "flat", id: "cname-" + c.id, value: c.name, "aria-label": "Kategorins namn", onchange: ev => { c.name = ev.target.value.trim() || "Namnlös"; commit(); } })),
-      h("div", { class: "c-bar" },
-        h("div", { class: "bar" }, h("div", { class: "fill " + (st === "ok" ? "" : st), style: `width:${Math.min(ratio, 1) * 100}%` }),
-          f > 0 && f < 1 && p > 0 ? h("div", { class: "pace", style: `left:calc(${f * 100}% - 1px)` }) : null),
-        h("div", { class: "spentcol" }, `${kr(spent)} spenderat`,
-          h("button", {
-            class: "fix", type: "button", id: "fix-" + c.id, "aria-pressed": c.fixed ? "true" : "false",
-            title: c.fixed ? "Fast utgift: räknas som betald varje månad. Tryck för att ändra." : "Gör till fast utgift som räknas som betald varje månad",
-            text: c.fixed ? "↻ Fast" : "Gör fast",
-            onclick: () => {
-              c.fixed = !c.fixed;
-              if (c.fixed) {
-                addFixedTx(month, cur, c.id);
-                toast(c.planned > 0 ? `${c.name}: ${kr(c.planned)} räknas som betalt varje månad` : `${c.name} är fast. Sätt ett belopp.`);
-              } else {
-                month.tx = month.tx.filter(t => !(t.auto && t.cat === c.id));
-              }
-              commit();
-            }
-          }))),
       h("div", { class: "c-plan" }, amountInput("plan-" + c.id, `Budget för ${c.name}`, () => c.planned || 0, v => { c.planned = v; syncFixedTx(month, c); })),
-      leftEl,
       h("div", { class: "c-del" }, delBtn("cat-" + c.id, "Ta bort kategori", () => {
         month.cats = month.cats.filter(x => x !== c);
         month.tx = month.tx.filter(t => !(t.auto && t.cat === c.id));
         for (const t of month.tx) if (t.cat === c.id) t.cat = null;
         commit();
-      }))
+      })),
+      h("div", { class: "c-meta" },
+        h("button", {
+          class: "fix", type: "button", id: "fix-" + c.id, "aria-pressed": c.fixed ? "true" : "false",
+          title: c.fixed ? "Fast utgift: räknas som betald varje månad. Tryck för att ändra." : "Gör till fast utgift som räknas som betald varje månad",
+          text: c.fixed ? "↻ Fast" : "Gör fast",
+          onclick: () => {
+            c.fixed = !c.fixed;
+            if (c.fixed) {
+              addFixedTx(month, cur, c.id);
+              toast(c.planned > 0 ? `${c.name}: ${kr(c.planned)} räknas som betalt varje månad` : `${c.name} är fast. Sätt ett belopp.`);
+            } else month.tx = month.tx.filter(t => !(t.auto && t.cat === c.id));
+            commit();
+          }
+        }),
+        h("span", { text: `${kr(spent)} spenderat` }),
+        h("span", { class: lk === "mute" ? "mute-t" : st + "-t", text: "· " + lt }))
     );
   }
 
@@ -417,7 +482,8 @@
     const isArmed = armed === key;
     return h("button", {
       class: "del" + (isArmed ? " armed" : ""), type: "button", "aria-label": label, title: label, text: isArmed ? "Ta bort?" : "×",
-      onclick: () => {
+      onclick: ev => {
+        ev.stopPropagation();
         if (armed === key) { armed = null; fn(); return; }
         armed = key; queueRender();
         setTimeout(() => { if (armed === key) { armed = null; queueRender(); } }, 3500);
@@ -427,7 +493,7 @@
 
   function fillCatSelect(month, sel, withAll) {
     const prev = sel.value, opts = [];
-    if (withAll) opts.push(h("option", { value: "", text: "Alla kategorier" }));
+    opts.push(h("option", { value: "", text: withAll ? "Alla kategorier" : "Välj kategori…" }));
     for (const g of GROUPS) {
       const cs = month.cats.filter(c => c.group === g); if (!cs.length) continue;
       opts.push(h("optgroup", { label: g }, cs.map(c => h("option", { value: c.id, text: c.name }))));
@@ -446,7 +512,110 @@
     return iso(t >= start && t <= endOfDay ? t : t < start ? start : end);
   }
 
+  // ---------- snabbköp ----------
+  let qStr = "", qCat = null;
+  const qVal = () => { const n = parseKr(qStr); return Number.isNaN(n) ? 0 : n; };
+
+  // Mest använda rörliga kategorier den här och förra månaden kommer först.
+  function topCats(month) {
+    const count = {};
+    for (const m of [month, store.months[shiftKey(cur, -1)]]) {
+      if (!m) continue;
+      for (const t of m.tx || []) if (!t.auto && t.cat) count[t.cat] = (count[t.cat] || 0) + 1;
+    }
+    return month.cats.filter(c => !c.fixed).map((c, i) => ({ c, n: count[c.id] || 0, i }))
+      .sort((a, b) => b.n - a.n || a.i - b.i).map(x => x.c);
+  }
+
+  function openSheet(catId) {
+    if (!M()) return;
+    qStr = ""; qCat = catId || null;
+    $("qNote").value = ""; $("qDate").value = defaultDate(); $("qMore").open = false;
+    $("qCatAll").hidden = true;
+    renderSheet();
+    $("sheet").hidden = false; document.body.classList.add("sheet-open");
+  }
+  function closeSheet() { $("sheet").hidden = true; document.body.classList.remove("sheet-open"); }
+
+  function renderSheet() {
+    const month = M(); if (!month) return;
+    const v = qVal();
+    const [ip, dp] = (qStr || "0").split(",");
+    $("qAmount").textContent = nf0.format(Number(ip || 0)) + (dp !== undefined ? "," + dp : "") + " kr";
+    $("qAmount").classList.toggle("zero", !v);
+
+    let chips = topCats(month).slice(0, 6);
+    if (qCat && !chips.some(c => c.id === qCat)) { const c = month.cats.find(x => x.id === qCat); if (c) chips = [c, ...chips.slice(0, 5)]; }
+    $("qChips").replaceChildren(...chips.map(c => h("button", {
+      class: "chip", type: "button", "aria-pressed": qCat === c.id ? "true" : "false", text: c.name,
+      onclick: () => { qCat = c.id; $("qCatAll").hidden = true; renderSheet(); }
+    })), h("button", {
+      class: "chip", type: "button", text: "Fler…", "aria-pressed": "false",
+      onclick: () => { const s = $("qCatAll"); fillCatSelect(month, s, false); s.value = qCat || ""; s.hidden = false; s.focus(); }
+    }));
+
+    const hint = $("qHint"); hint.className = "qhint";
+    const c = month.cats.find(x => x.id === qCat);
+    if (!c) hint.textContent = month.cats.length ? "Välj en kategori" : "";
+    else {
+      const T = totals(month), p = c.planned || 0, s = T.spentBy[c.id] || 0, after = p - s - v;
+      if (p === 0) hint.textContent = `${c.name} har ingen budget den här månaden`;
+      else if (after < -0.005) { hint.textContent = `${c.name} hamnar ${kr(-after)} över budget`; hint.classList.add("bad"); }
+      else if (after / p < 0.1) { hint.textContent = `Bara ${kr(after)} kvar i ${c.name} efter köpet`; hint.classList.add("warn"); }
+      else hint.textContent = v ? `${c.name} har ${kr(after)} kvar efter köpet` : `${c.name}: ${kr(p - s)} kvar`;
+    }
+  }
+
+  function keyIn(k) {
+    if (k === "del") qStr = qStr.slice(0, -1);
+    else if (k === ",") { if (!qStr.includes(",")) qStr = (qStr || "0") + ","; }
+    else if (/^\d$/.test(k)) {
+      const [ip, dp] = qStr.split(",");
+      if (dp !== undefined && dp.length >= 2) return;
+      if (dp === undefined && ip.length >= 7) return;
+      qStr = qStr === "0" ? k : qStr + k;
+    }
+    renderSheet();
+  }
+
+  function saveQuick() {
+    const month = M(), v = qVal();
+    const hint = $("qHint");
+    if (!v) { hint.textContent = "Skriv ett belopp först"; hint.className = "qhint bad"; return; }
+    if (!qCat && month.cats.length) { hint.textContent = "Välj en kategori först"; hint.className = "qhint bad"; return; }
+    month.tx.push({ id: rid(), date: $("qDate").value || defaultDate(), cat: qCat, note: $("qNote").value.trim(), amount: v, at: Date.now() });
+    commit(); closeSheet();
+    const c = month.cats.find(x => x.id === qCat);
+    if (!c) { toast(`${kr(v)} tillagt`); return; }
+    const T = totals(month), p = c.planned || 0, left = p - (T.spentBy[c.id] || 0);
+    if (p > 0 && left < -0.005) toast(`${c.name}: ${kr(-left)} över budget`, "bad", 5000);
+    else if (p > 0 && left / p < 0.1) toast(`Bara ${kr(left)} kvar i ${c.name}`, "warn", 5000);
+    else toast(p > 0 ? `${c.name}: ${kr(left)} kvar` : `${kr(v)} tillagt i ${c.name}`);
+  }
+
+  $("fab").onclick = () => openSheet(null);
+  $("scrim").onclick = closeSheet;
+  $("sheetClose").onclick = closeSheet;
+  $("qSave").onclick = saveQuick;
+  $("keypad").addEventListener("click", ev => { const b = ev.target.closest("button[data-k]"); if (b) keyIn(b.dataset.k); });
+  $("qCatAll").onchange = ev => { qCat = ev.target.value || null; renderSheet(); };
+  document.addEventListener("keydown", ev => {
+    if ($("sheet").hidden) return;
+    if (ev.key === "Escape") { closeSheet(); return; }
+    if (ev.target.matches("input,select,textarea")) { if (ev.key === "Enter" && ev.target.tagName === "INPUT") { ev.preventDefault(); saveQuick(); } return; }
+    if (/^\d$/.test(ev.key)) keyIn(ev.key);
+    else if (ev.key === "," || ev.key === ".") keyIn(",");
+    else if (ev.key === "Backspace") keyIn("del");
+    else if (ev.key === "Enter") saveQuick();
+    else return;
+    ev.preventDefault();
+  });
+
   // ---------- händelser ----------
+  document.querySelectorAll("#tabbar button").forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
+  $("hAllTx").onclick = () => setTab("tx");
+  $("hBills").onclick = () => setTab("budget");
+  $("hUnassigned").onclick = () => setTab("budget");
   $("prevBtn").onclick = () => openMonth(shiftKey(cur, -1));
   $("nextBtn").onclick = () => openMonth(shiftKey(cur, 1));
   $("todayBtn").onclick = () => openMonth(currentKey());
@@ -461,16 +630,6 @@
     }
     createMonth(mk.copy(store.months[pk]));
   };
-
-  $("addTxForm").addEventListener("submit", ev => {
-    ev.preventDefault();
-    const msg = $("txMsg"); msg.hidden = true;
-    const amount = parseKr($("txAmount").value);
-    if (Number.isNaN(amount) || amount === 0) { msg.textContent = "Skriv ett belopp, t.ex. 349 eller 1 250,50."; msg.hidden = false; $("txAmount").focus(); return; }
-    M().tx.push({ id: rid(), date: $("txDate").value || defaultDate(), cat: $("txCat").value || null, note: $("txNote").value.trim(), amount, at: Date.now() });
-    $("txAmount").value = ""; $("txNote").value = "";
-    commit(); toast(`${kr(amount)} tillagt`);
-  });
 
   $("addCatForm").addEventListener("submit", ev => {
     ev.preventDefault();
@@ -493,12 +652,11 @@
   };
 
   $("csvBtn").onclick = () => {
-    const month = M(); if (!month) return;
-    const name = id => month.cats.find(c => c.id === id)?.name || "Utan kategori";
+    const month = M(); if (!month) { toast("Det finns inga köp den här månaden"); return; }
     const q = s => `"${String(s).replace(/"/g, '""')}"`;
     const rows = [["Datum", "Kategori", "Anteckning", "Belopp (kr)"].map(q).join(";")]
       .concat(month.tx.slice().sort((a, b) => a.date.localeCompare(b.date))
-        .map(t => [t.date, name(t.cat), t.note || "", String(t.amount).replace(".", ",")].map(q).join(";")));
+        .map(t => [t.date, catName(month, t.cat), t.auto ? "Fast utgift" : (t.note || ""), String(t.amount).replace(".", ",")].map(q).join(";")));
     const blob = new Blob(["﻿" + rows.join("\r\n")], { type: "text/csv;charset=utf-8" });
     const a = h("a", { href: URL.createObjectURL(blob), download: `bankboken-${cur}.csv` });
     document.body.append(a); a.click(); a.remove();
@@ -523,7 +681,7 @@
 
   // ---------- inloggning ----------
   function showLogin(message) {
-    ["loading", "empty", "budget", "monthnav", "meta"].forEach(id => { $(id).hidden = true; });
+    ["loading", "empty", "vHome", "vTx", "vBudget", "vMore", "monthnav", "tabbar", "fab", "todayBtn"].forEach(id => { $(id).hidden = true; });
     $("login").hidden = false;
     const err = $("loginErr"); err.hidden = !message; err.textContent = message || "";
     setSync("Utloggad");
@@ -565,11 +723,12 @@
   // ---------- start ----------
   async function start() {
     $("installTip").hidden = !(isIOS && !isStandalone);
+    document.querySelectorAll("#tabbar button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab ? "true" : "false"));
     if (!CLOUD) {
       store.loadCache(); store.loaded = true; store.synced = true;
       setSync("Testläge", "warn");
       const n = $("notice"); n.hidden = false;
-      n.textContent = "Testläge: databasen är inte inkopplad än, så budgeten sparas bara i den här webbläsaren.";
+      n.textContent = "Testläge: databasen är inte inkopplad, så budgeten sparas bara i den här webbläsaren.";
       $("startDay").value = String(store.settings.startDay);
       openMonth(currentKey());
       return;
