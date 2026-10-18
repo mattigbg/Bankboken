@@ -54,7 +54,7 @@
       <span class="label">Ny månad</span>
       <h2 id="emptyTitle">Ingen budget för den här månaden än</h2>
     </div>
-    <p>Lägg upp inkomster och fördela pengarna på kategorier. Målet är att varje krona får en uppgift: när det fördelade beloppet är lika med inkomsten går budgeten jämnt ut.</p>
+    <p id="emptyIntro">Lägg upp inkomster och fördela pengarna på kategorier.</p>
     <div class="choices">
       <button class="choice primary" id="copyPrevBtn"><b id="copyPrevLabel">Kopiera förra månaden</b><span>Samma inkomster, kategorier och belopp. Köpen börjar om från noll.</span></button>
       <button class="choice" id="templateBtn"><b>Använd standardmall</b><span>18 vanliga kategorier med förslag på belopp för ett hushåll med en inkomst. Justera efter dina siffror.</span></button>
@@ -133,6 +133,7 @@
                 <option value="25">den 25:e (lönedagen)</option>
               </select>
             </label>
+            <p class="muted small" style="margin:0">Med lönedagen gäller till exempel oktober från 25 september till 24 oktober.</p>
             <button class="btn" id="csvBtn" type="button">Exportera månadens köp (CSV)</button>
             <div class="account" id="account" hidden>
               <span class="muted" id="who"></span>

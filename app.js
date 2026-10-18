@@ -6,11 +6,12 @@
   const TEMPLATE = {
     income: [["Lön (netto)", 28000]],
     cats: [
-      ["Hyra/avgift", "Boende", 9500], ["El", "Boende", 600], ["Hemförsäkring", "Boende", 180], ["Bredband", "Boende", 399],
-      ["Kollektivtrafik", "Transport", 990], ["Bil & bränsle", "Transport", 1200],
+      // [namn, grupp, belopp, fast utgift]
+      ["Hyra/avgift", "Boende", 9500, true], ["El", "Boende", 600], ["Hemförsäkring", "Boende", 180, true], ["Bredband", "Boende", 399, true],
+      ["Kollektivtrafik", "Transport", 990, true], ["Bil & bränsle", "Transport", 1200],
       ["Matbutik", "Mat & hushåll", 4500], ["Hygien & hushåll", "Mat & hushåll", 500], ["Restaurang & fika", "Mat & hushåll", 1000],
-      ["Mobil", "Abonnemang", 249], ["Streaming", "Abonnemang", 300], ["Gym", "Abonnemang", 400],
-      ["Buffertsparande", "Sparande", 1500], ["Fondsparande (ISK)", "Sparande", 2000],
+      ["Mobil", "Abonnemang", 249, true], ["Streaming", "Abonnemang", 300, true], ["Gym", "Abonnemang", 400, true],
+      ["Buffertsparande", "Sparande", 1500, true], ["Fondsparande (ISK)", "Sparande", 2000, true],
       ["Kläder", "Övrigt", 600], ["Nöje", "Övrigt", 800], ["Presenter", "Övrigt", 300], ["Oförutsett", "Övrigt", 500]
     ]
   };
@@ -44,15 +45,18 @@
     return keyOf(y, m);
   }
   function monthName(key) { const [y, m] = key.split("-").map(Number); const n = MONTHS[m - 1]; return n[0].toUpperCase() + n.slice(1) + " " + y; }
+  // Med lönedagen den 25:e heter perioden efter månaden lönen ska räcka till:
+  // oktober = 25 september – 24 oktober.
   function period(key) {
     const [y, m] = key.split("-").map(Number), s = store.settings.startDay;
-    const start = new Date(y, m - 1, s), end = new Date(y, m, s - 1);
+    const start = s === 1 ? new Date(y, m - 1, 1) : new Date(y, m - 2, s);
+    const end = s === 1 ? new Date(y, m, 0) : new Date(y, m - 1, s - 1);
     return { start, end, days: Math.round((end - start) / 864e5) + 1 };
   }
   function currentKey() {
     const t = new Date(), s = store.settings.startDay;
     let y = t.getFullYear(), m = t.getMonth() + 1;
-    if (t.getDate() < s) { m--; if (m < 1) { m = 12; y--; } }
+    if (s > 1 && t.getDate() >= s) { m++; if (m > 12) { m = 1; y++; } }
     return keyOf(y, m);
   }
   function elapsed(key) {
@@ -95,6 +99,7 @@
 
   const store = {
     sb: null, user: null, loaded: false,
+    synced: false, // sant när molnet har lästs in, så att en ny månad aldrig skriver över en som finns på en annan enhet
     months: {}, settings: { startDay: 1 },
     outbox: [], flushing: false, channel: null, timer: 0,
 
@@ -171,7 +176,7 @@
       this.months = months;
       if (!this.pending("s", "s") && s.data) this.settings = { startDay: s.data.start_day === 25 ? 25 : 1 };
       this.saveCache();
-      this.loaded = true;
+      this.loaded = true; this.synced = true;
       if (!this.outbox.length) setSync("Synkad", "ok");
     },
 
@@ -194,7 +199,7 @@
       if (this.channel) { this.sb.removeChannel(this.channel); this.channel = null; }
       lsDel("hk-cache-" + this.uid); lsDel("hk-outbox-" + this.uid);
       await this.sb.auth.signOut().catch(() => {});
-      this.user = null; this.months = {}; this.outbox = []; this.settings = { startDay: 1 }; this.loaded = false;
+      this.user = null; this.months = {}; this.outbox = []; this.settings = { startDay: 1 }; this.loaded = false; this.synced = false;
       showLogin();
     }
   };
@@ -209,11 +214,34 @@
   function openMonth(key) { cur = key; armed = null; txFilter = ""; render(); }
 
   const mk = {
-    template: () => ({ v: 1, income: TEMPLATE.income.map(([name, amount]) => ({ id: rid(), name, amount })), cats: TEMPLATE.cats.map(([name, group, planned]) => ({ id: rid(), name, group, planned })), tx: [] }),
-    blank: () => ({ v: 1, income: [{ id: rid(), name: "Lön (netto)", amount: 0 }], cats: TEMPLATE.cats.map(([name, group]) => ({ id: rid(), name, group, planned: 0 })), tx: [] }),
+    template: () => ({ v: 1, income: TEMPLATE.income.map(([name, amount]) => ({ id: rid(), name, amount })), cats: TEMPLATE.cats.map(([name, group, planned, fixed]) => ({ id: rid(), name, group, planned, fixed: !!fixed })), tx: [] }),
+    blank: () => ({ v: 1, income: [{ id: rid(), name: "Lön (netto)", amount: 0 }], cats: TEMPLATE.cats.map(([name, group, , fixed]) => ({ id: rid(), name, group, planned: 0, fixed: !!fixed })), tx: [] }),
     copy: prev => ({ v: 1, income: (prev.income || []).map(i => ({ ...i })), cats: (prev.cats || []).map(c => ({ ...c })), tx: [] })
   };
-  function createMonth(data) { store.setMonth(cur, data); render(); }
+  function createMonth(data) { addFixedTx(data, cur); store.setMonth(cur, data); render(); }
+
+  // Fasta utgifter bokförs automatiskt som köp den första dagen i budgetmånaden.
+  function addFixedTx(m, key, onlyCat) {
+    const date = iso(period(key).start);
+    for (const c of m.cats) {
+      if (!c.fixed || !(c.planned > 0) || (onlyCat && c.id !== onlyCat)) continue;
+      if (m.tx.some(t => t.auto && t.cat === c.id)) continue;
+      m.tx.push({ id: rid(), date, cat: c.id, note: "Fast utgift", amount: c.planned, at: 0, auto: true });
+    }
+  }
+  function syncFixedTx(m, c) {
+    if (!c.fixed) return;
+    const t = m.tx.find(x => x.auto && x.cat === c.id);
+    if (!t) addFixedTx(m, cur, c.id);
+    else if (c.planned > 0) t.amount = c.planned;
+    else m.tx = m.tx.filter(x => x !== t);
+  }
+  // Närmaste tidigare månad som har en budget.
+  function prevMonthKey(key) {
+    let k = key;
+    for (let i = 0; i < 36; i++) { k = shiftKey(k, -1); if (store.months[k]) return k; }
+    return null;
+  }
 
   // ---------- visning ----------
   function render() {
@@ -223,6 +251,11 @@
     $("monthnav").hidden = $("meta").hidden = false;
     renderHeader();
     const month = M();
+    // Ny månad som har börjat: skapa den automatiskt från den senaste budgeten.
+    if (!month && store.synced && cur <= currentKey()) {
+      const pk = prevMonthKey(cur);
+      if (pk) { createMonth(mk.copy(store.months[pk])); toast(`${monthName(cur)} skapades från ${MONTHS[Number(pk.split("-")[1]) - 1]}`); return; }
+    }
     const waiting = !month && !store.loaded;
     $("loading").hidden = !waiting;
     $("empty").hidden = waiting || !!month;
@@ -244,7 +277,11 @@
 
   function renderEmpty() {
     $("emptyTitle").textContent = `Ingen budget för ${monthName(cur).toLowerCase()} än`;
-    $("copyPrevLabel").textContent = `Kopiera ${MONTHS[Number(shiftKey(cur, -1).split("-")[1]) - 1]}`;
+    const pk = prevMonthKey(cur);
+    $("copyPrevLabel").textContent = pk ? `Kopiera ${MONTHS[Number(pk.split("-")[1]) - 1]}` : "Kopiera förra månaden";
+    $("emptyIntro").textContent = pk && cur > currentKey()
+      ? `Månaden skapas automatiskt från den senaste budgeten när den börjar. Du kan också lägga upp den redan nu.`
+      : "Lägg upp inkomster och fördela pengarna på kategorier. Markera hyra, abonnemang och sparande som fasta utgifter, så räknas de som betalda varje månad och följer med automatiskt till nästa.";
     $("emptyMsg").hidden = true;
     $("templatePreview").replaceChildren(...TEMPLATE.cats.map(c => h("span", { text: c[0] })));
   }
@@ -318,7 +355,9 @@
     const catName = id => month.cats.find(c => c.id === id)?.name || "Utan kategori";
     $("txList").replaceChildren(...(list.length ? list.map(t => h("div", { class: "tx" },
       h("span", { class: "d", text: fmtDay(t.date) }),
-      h("div", { class: "n" }, h("b", { text: t.note || catName(t.cat) }), h("span", { text: t.note ? catName(t.cat) : "" })),
+      t.auto
+        ? h("div", { class: "n" }, h("b", { text: catName(t.cat) }), h("span", { text: "↻ Fast utgift" }))
+        : h("div", { class: "n" }, h("b", { text: t.note || catName(t.cat) }), h("span", { text: t.note ? catName(t.cat) : "" })),
       h("span", { class: "a", text: kr(t.amount) }),
       delBtn("tx-" + t.id, "Ta bort köp", () => { month.tx = month.tx.filter(x => x !== t); commit(); })
     )) : [h("p", { class: "muted", text: txFilter ? "Inga köp i den här kategorin." : "Inga köp registrerade den här månaden." })]));
@@ -346,11 +385,27 @@
       h("div", { class: "c-bar" },
         h("div", { class: "bar" }, h("div", { class: "fill " + (st === "ok" ? "" : st), style: `width:${Math.min(ratio, 1) * 100}%` }),
           f > 0 && f < 1 && p > 0 ? h("div", { class: "pace", style: `left:calc(${f * 100}% - 1px)` }) : null),
-        h("div", { class: "spentcol", text: `${kr(spent)} spenderat` })),
-      h("div", { class: "c-plan" }, amountInput("plan-" + c.id, `Budget för ${c.name}`, () => c.planned || 0, v => { c.planned = v; })),
+        h("div", { class: "spentcol" }, `${kr(spent)} spenderat`,
+          h("button", {
+            class: "fix", type: "button", id: "fix-" + c.id, "aria-pressed": c.fixed ? "true" : "false",
+            title: c.fixed ? "Fast utgift: räknas som betald varje månad. Tryck för att ändra." : "Gör till fast utgift som räknas som betald varje månad",
+            text: c.fixed ? "↻ Fast" : "Gör fast",
+            onclick: () => {
+              c.fixed = !c.fixed;
+              if (c.fixed) {
+                addFixedTx(month, cur, c.id);
+                toast(c.planned > 0 ? `${c.name}: ${kr(c.planned)} räknas som betalt varje månad` : `${c.name} är fast. Sätt ett belopp.`);
+              } else {
+                month.tx = month.tx.filter(t => !(t.auto && t.cat === c.id));
+              }
+              commit();
+            }
+          }))),
+      h("div", { class: "c-plan" }, amountInput("plan-" + c.id, `Budget för ${c.name}`, () => c.planned || 0, v => { c.planned = v; syncFixedTx(month, c); })),
       leftEl,
       h("div", { class: "c-del" }, delBtn("cat-" + c.id, "Ta bort kategori", () => {
         month.cats = month.cats.filter(x => x !== c);
+        month.tx = month.tx.filter(t => !(t.auto && t.cat === c.id));
         for (const t of month.tx) if (t.cat === c.id) t.cat = null;
         commit();
       }))
@@ -398,13 +453,13 @@
   $("templateBtn").onclick = () => createMonth(mk.template());
   $("blankBtn").onclick = () => createMonth(mk.blank());
   $("copyPrevBtn").onclick = () => {
-    const prevKey = shiftKey(cur, -1), prev = store.months[prevKey];
-    if (!prev) {
+    const pk = prevMonthKey(cur);
+    if (!pk) {
       const msg = $("emptyMsg");
-      msg.textContent = `Det finns ingen budget för ${monthName(prevKey).toLowerCase()} att kopiera. Välj mallen eller börja från noll.`;
+      msg.textContent = "Det finns ingen tidigare budget att kopiera. Välj mallen eller börja från noll.";
       msg.hidden = false; return;
     }
-    createMonth(mk.copy(prev));
+    createMonth(mk.copy(store.months[pk]));
   };
 
   $("addTxForm").addEventListener("submit", ev => {
@@ -511,7 +566,7 @@
   async function start() {
     $("installTip").hidden = !(isIOS && !isStandalone);
     if (!CLOUD) {
-      store.loadCache(); store.loaded = true;
+      store.loadCache(); store.loaded = true; store.synced = true;
       setSync("Testläge", "warn");
       const n = $("notice"); n.hidden = false;
       n.textContent = "Testläge: databasen är inte inkopplad än, så budgeten sparas bara i den här webbläsaren.";
