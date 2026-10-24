@@ -417,7 +417,7 @@
       wrap.append(h("div", { class: "grp" },
         h("div", { class: "grph" }, h("h3", { text: g }), h("span", { text: `${kr(gs)} av ${kr(gb)}` })),
         cs.map(x => catLine(x, e.f)),
-        fs.map(x => h("button", { class: "hcat fixed", type: "button", onclick: () => openFixSheet(x.f.id, "fixed"), "aria-label": `${x.f.name}, fast utgift ${kr(x.amount)}, betald` },
+        fs.map(x => h("button", { class: "hcat fixed", type: "button", onclick: () => setTab("fixed"), "aria-label": `${x.f.name}, fast utgift ${kr(x.amount)}, betald` },
           h("div", { class: "r1" }, h("span", { class: "nm", text: x.f.name }), h("span", { class: "lf2 mute-t", text: kr(x.amount) })),
           h("div", { class: "r3" }, h("span", { text: "Fast utgift · betald" }))))));
     }
@@ -425,13 +425,13 @@
       h("button", { class: "hcat", type: "button", onclick: () => { txFilter = "_none"; setTab("tx"); } },
         h("div", { class: "r1" }, h("span", { class: "nm", text: "Utan kategori" }), h("span", { class: "lf2 mute-t", text: kr(mm.loose) })),
         h("div", { class: "r3" }, h("span", { text: "Tryck för att se köpen och flytta dem" })))));
-    if (!wrap.children.length) wrap.append(h("p", { class: "muted", text: "Inga kategorier än. Lägg till den första nedan." }));
+    if (!wrap.children.length) wrap.append(h("p", { class: "muted", text: "Inga kategorier än. Lägg till dem under fliken Budget." }));
   }
 
   function catLine(x, f) {
     const st = catState(x.budget, x.spent, f), [lt, lk] = leftText(x.budget, x.spent);
     const r = x.budget > 0 ? Math.min(x.spent / x.budget, 1) : (x.spent > 0 ? 1 : 0);
-    return h("button", { class: "hcat", type: "button", onclick: () => openCatSheet(x.c.id), "aria-label": `${x.c.name}: ${lt}` },
+    return h("button", { class: "hcat", type: "button", onclick: () => { txFilter = x.c.id; setTab("tx"); }, "aria-label": `${x.c.name}: ${lt}. Visa köpen` },
       h("div", { class: "r1" }, h("span", { class: "nm", text: x.c.name }), h("span", { class: "lf2 " + (lk === "mute" ? "mute-t" : st + "-t"), text: lt })),
       h("div", { class: "cbar" }, h("div", { class: "fill " + (st === "ok" ? "" : st), style: `width:${r * 100}%` }),
         f > 0 && f < 1 && x.budget > 0 ? h("div", { class: "pace", style: `left:calc(${f * 100}% - 1px)` }) : null),
@@ -508,6 +508,17 @@
         h("small", { text: intervalLabel(f) + (occurs(f, cur) ? "" : " · inte denna månad") })));
     }
     $("fixList").replaceChildren(...(out.length ? out : [h("p", { class: "muted small", text: "Inga fasta utgifter än." })]));
+
+    $("catTotal").textContent = `${kr(mm.cb)} denna månad`;
+    const cs = [];
+    for (const g of groupsOf(p, mm.cats.map(x => x.c.group))) {
+      const xs = mm.cats.filter(x => x.c.group === g); if (!xs.length) continue;
+      cs.push(h("div", { class: "fgh", text: g }));
+      for (const x of xs) cs.push(h("button", { class: "frow", type: "button", onclick: () => openCatSheet(x.c.id) },
+        h("b", { text: x.c.name }), h("span", { class: "amt2", text: kr(x.budget) }),
+        h("small", { text: x.only ? `Ändrad bara för ${monthLabel(cur)}` : `Varje månad · ${kr(x.spent)} spenderat hittills` })));
+    }
+    $("catList").replaceChildren(...(cs.length ? cs : [h("p", { class: "muted small", text: "Inga kategorier än." })]));
   }
 
   // ---------- bottenpaneler ----------

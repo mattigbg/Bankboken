@@ -74,10 +74,9 @@
     <div class="card minis" id="hMinis"></div>
 
     <div class="card">
-      <div class="chead"><h2>Kategorier</h2><span class="muted small">Tryck för att ändra</span></div>
+      <div class="chead"><h2>Kategorier</h2><span class="muted small">Tryck för att se köpen</span></div>
       <div class="colhead"><span>Spenderat av budget</span><span>Kvar</span></div>
       <div id="hGroups"></div>
-      <button class="btn" id="addCatBtn" type="button">+ Ny kategori</button>
     </div>
   </section>
 
@@ -95,7 +94,7 @@
     </div>
   </section>
 
-  <!-- Fasta -->
+  <!-- Budget: inkomster, fasta utgifter och budget per kategori -->
   <section id="vFixed" class="view" hidden>
     <div class="card">
       <div class="chead"><h2>Inkomster</h2><span class="muted small" id="incTotal"></span></div>
@@ -107,6 +106,12 @@
       <p class="muted small">Läggs in en gång och räknas som betalda när budgetmånaden börjar. Tryck på en rad för att ändra belopp, grupp eller hur ofta den kommer.</p>
       <div id="fixList"></div>
       <button class="btn" id="addFixBtn" type="button">+ Lägg till fast utgift</button>
+    </div>
+    <div class="card">
+      <div class="chead"><h2>Kategorier</h2><span class="muted small" id="catTotal"></span></div>
+      <p class="muted small">Rörliga utgifter som mat och bensin. Budgeten gäller varje månad tills du ändrar den. Tryck på en kategori för att byta namn, flytta den till en annan grupp eller ändra budgeten.</p>
+      <div id="catList"></div>
+      <button class="btn" id="addCatBtn" type="button">+ Ny kategori</button>
     </div>
   </section>
 
@@ -121,6 +126,7 @@
         </select>
       </label>
       <p class="muted small">Lönedagen är den 25:e, eller vardagen före om den 25:e är en lördag, söndag eller helgdag. November börjar till exempel fredag 23 oktober 2026. Tryck på datumet under månadens namn om lönen kommer en annan dag.</p>
+      <p class="muted small">Inkomster, fasta utgifter och budget per kategori ändrar du under fliken Budget. Köp lägger du till och ändrar under fliken Köp.</p>
       <button class="btn" id="csvBtn" type="button">Exportera månadens köp (CSV)</button>
     </div>
     <div class="card settings" id="account" hidden>
@@ -146,7 +152,7 @@
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg><span>Köp</span>
   </button>
   <button role="tab" data-tab="fixed" aria-selected="false">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4.5h-4.5"/></svg><span>Fasta</span>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5H12z"/><path d="M15 3.8A8.5 8.5 0 0 1 20.2 9H15z"/></svg><span>Budget</span>
   </button>
   <button role="tab" data-tab="more" aria-selected="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg><span>Mer</span>

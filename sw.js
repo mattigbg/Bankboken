@@ -1,6 +1,6 @@
 // Gör att appen startar även utan internet.
 // Öka versionen när appens filer ändras, så hämtar telefonerna den nya versionen.
-const VERSION = "bankboken-v6";
+const VERSION = "bankboken-v7";
 const SHELL = [
   "./",
   "index.html",
