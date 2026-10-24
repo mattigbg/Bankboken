@@ -56,7 +56,6 @@ input,select{font-size:16px} /* hindrar iPhone från att zooma */
 .monthnav{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .mt{text-align:center;display:grid}
 .mt h1{font-size:26px;font-weight:700}
-.mt span{font-size:13px;color:var(--ink-2)}
 .navbtn{width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:20px;line-height:1}
 .today{justify-self:center;border:0;background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:4px 12px;font-size:13px;font-weight:600;cursor:pointer}
 .notice{background:var(--warn-soft);border-radius:12px;padding:10px 14px;font-size:14px;margin-bottom:12px}
@@ -183,6 +182,50 @@ dialog::backdrop{background:rgba(8,16,24,.45)}
 .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + var(--tabbar) + 90px);transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:11px 18px;border-radius:14px;font-size:15px;font-weight:500;z-index:30;max-width:calc(100vw - 32px);text-align:center}
 .toast.warn{background:var(--warn);color:var(--surface)}
 .toast.bad{background:var(--bad);color:var(--surface)}
+
+/* lönedag i huvudet */
+.period{border:0;background:none;color:var(--ink-2);font-size:13px;cursor:pointer;padding:2px 6px;border-radius:8px}
+.period.editable{text-decoration:underline dotted;text-underline-offset:3px}
+.period:hover{color:var(--ink)}
+
+/* sammanfattning i fyra rutor */
+.minis{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;padding:14px 16px}
+.mini{display:grid;gap:1px;min-width:0}
+.mini b{font-family:var(--f-display);font-size:19px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini b.warn-t{color:var(--warn)} .mini b.bad-t{color:var(--bad)} .mini b.ok-t{color:var(--ok)}
+
+/* grupperad översikt */
+.colhead{display:flex;justify-content:space-between;font-family:var(--f-mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);margin-bottom:-6px}
+.grp{display:grid}
+.grp + .grp{margin-top:14px}
+.grph{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:6px 0;border-bottom:2px solid var(--line)}
+.grph h3{font-size:15px;font-family:var(--f-body);font-weight:700}
+.grph span{font-size:13px;color:var(--ink-2);white-space:nowrap}
+.hcat.fixed .nm::after{content:" ↻";color:var(--ink-2);font-weight:500}
+.hcat .r3{display:flex;justify-content:space-between;gap:8px}
+.tag{font-size:11.5px;border-radius:999px;padding:1px 8px;background:var(--surface-2);color:var(--ink-2);white-space:nowrap}
+
+/* fasta-listan */
+.frow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;align-items:center;width:100%;text-align:left;border:0;border-top:1px solid var(--line);background:none;padding:11px 2px;cursor:pointer}
+.frow:first-child{border-top:0}
+.frow b{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frow .amt2{font-weight:600;white-space:nowrap;text-align:right}
+.frow small{grid-column:1/-1;color:var(--ink-2);font-size:12.5px}
+.frow.off{opacity:.6}
+.fgh{font-family:var(--f-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);padding:12px 0 2px}
+.fgh:first-child{padding-top:0}
+.tx.click{cursor:pointer}
+
+/* formulär i bottenpanel */
+.fbody{display:grid;gap:12px}
+.fbody .lf{font-size:13px}
+.fbody .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.radio{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ink)}
+.radio input{width:18px;height:18px;accent-color:var(--accent)}
+.stats3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;background:var(--surface-2);border-radius:12px;padding:10px}
+.stats3 b{display:block;font-family:var(--f-display);font-size:17px}
+.stats3 span{font-size:11.5px;color:var(--ink-2)}
+.note{font-size:13px;color:var(--ink-2);margin:0}
 
 @media (prefers-reduced-motion:no-preference){
   .hbar .fill,.cbar .fill{transition:width .35s ease}

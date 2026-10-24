@@ -26,7 +26,7 @@
     <button class="navbtn" id="prevBtn" aria-label="Föregående månad">‹</button>
     <div class="mt">
       <h1 id="monthTitle">&nbsp;</h1>
-      <span id="period"></span>
+      <button class="period" id="period" type="button"></button>
     </div>
     <button class="navbtn" id="nextBtn" aria-label="Nästa månad">›</button>
   </div>
@@ -51,16 +51,14 @@
 
   <section id="empty" class="card empty" hidden>
     <div>
-      <span class="label">Ny månad</span>
-      <h2 id="emptyTitle">Ingen budget för den här månaden än</h2>
+      <span class="label">Kom igång</span>
+      <h2>Lägg upp din budget</h2>
     </div>
-    <p class="muted" id="emptyIntro"></p>
+    <p class="muted">Du lägger in inkomster, fasta utgifter och en budget per kategori en gång. Sedan gäller de varje månad tills du ändrar dem.</p>
     <div class="choices">
-      <button class="choice primary" id="copyPrevBtn"><b id="copyPrevLabel">Kopiera förra månaden</b><span>Samma inkomster, kategorier och fasta utgifter. Köpen börjar om från noll.</span></button>
-      <button class="choice" id="templateBtn"><b>Använd standardmall</b><span>18 vanliga kategorier med förslag på belopp. Hyra, abonnemang och sparande är fasta.</span></button>
-      <button class="choice" id="blankBtn"><b>Börja från noll</b><span>Samma kategorier som mallen, alla belopp satta till 0 kr.</span></button>
+      <button class="choice primary" id="templateBtn"><b>Använd standardmall</b><span>Vanliga fasta utgifter och kategorier med förslag på belopp. Justera efter dina siffror.</span></button>
+      <button class="choice" id="blankBtn"><b>Börja från noll</b><span>Samma grupper, men inga belopp. Du lägger in allt själv.</span></button>
     </div>
-    <p class="msg" id="emptyMsg" hidden></p>
   </section>
 
   <!-- Översikt -->
@@ -71,55 +69,44 @@
       <div id="hDaily"></div>
       <div class="hbar" role="img" id="hBarWrap"><div class="fill" id="hFill"></div><div class="pace" id="hPace" hidden></div></div>
       <div class="hmeta"><span id="hSpent"></span><span id="hPayday"></span></div>
-      <button class="linkrow" id="hUnassigned" hidden></button>
     </div>
 
-    <div class="card">
-      <div class="chead"><h2>Rörliga utgifter</h2><span class="muted small">Tryck för att lägga till köp</span></div>
-      <div id="hCats" class="hcats"></div>
-    </div>
-
-    <button class="card linkrow bills" id="hBills" hidden></button>
+    <div class="card minis" id="hMinis"></div>
 
     <div class="card">
-      <div class="chead"><h2>Senaste köp</h2><button class="textbtn" id="hAllTx">Visa alla</button></div>
-      <div id="hRecent" class="txlist"></div>
+      <div class="chead"><h2>Kategorier</h2><span class="muted small">Tryck för att ändra</span></div>
+      <div class="colhead"><span>Spenderat av budget</span><span>Kvar</span></div>
+      <div id="hGroups"></div>
+      <button class="btn" id="addCatBtn" type="button">+ Ny kategori</button>
     </div>
   </section>
 
-  <!-- Köp -->
+  <!-- Månadens köp -->
   <section id="vTx" class="view" hidden>
     <div class="card">
-      <div class="chead"><h2>Köp</h2><select class="field auto" id="txFilter" aria-label="Visa kategori"></select></div>
+      <div class="chead"><h2>Månadens köp</h2><select class="field auto" id="txFilter" aria-label="Visa kategori"></select></div>
       <p class="muted small" id="txSum"></p>
       <div class="txlist" id="txList"></div>
     </div>
+    <div class="card" id="upcomingCard">
+      <div class="chead"><h2>Kommande räkningar</h2></div>
+      <p class="muted small">Köp och räkningar du har lagt in för senare månader. Välj månad under <b>Betalas</b> när du lägger till ett köp.</p>
+      <div class="txlist" id="upcoming"></div>
+    </div>
   </section>
 
-  <!-- Budget -->
-  <section id="vBudget" class="view" hidden>
-    <div class="card sumrow">
-      <div><span class="label">Inkomster</span><b id="bIncome">0 kr</b></div>
-      <div><span class="label">Fördelat</span><b id="bPlanned">0 kr</b></div>
-      <div class="full" id="bUnassigned"></div>
-    </div>
-
+  <!-- Fasta -->
+  <section id="vFixed" class="view" hidden>
     <div class="card">
-      <div class="chead"><h2>Inkomster</h2></div>
-      <div id="incomes" class="stack"></div>
+      <div class="chead"><h2>Inkomster</h2><span class="muted small" id="incTotal"></span></div>
+      <div id="incList" class="txlist"></div>
       <button class="btn" id="addIncBtn" type="button">+ Lägg till inkomst</button>
     </div>
-
     <div class="card">
-      <div class="chead"><h2>Kategorier</h2></div>
-      <p class="muted small">Tryck på namn eller belopp för att ändra. <b>Gör fast</b> betyder att beloppet räknas som betalt varje månad, till exempel hyra och abonnemang.</p>
-      <div id="cats"></div>
-      <form class="addrow" id="addCatForm" autocomplete="off">
-        <input class="field" id="newCatName" placeholder="Ny kategori, t.ex. Tandläkare" aria-label="Namn på ny kategori">
-        <select class="field" id="newCatGroup" aria-label="Grupp"></select>
-        <input class="field amt" id="newCatPlan" inputmode="decimal" placeholder="0 kr" aria-label="Belopp">
-        <button class="btn" type="submit">Lägg till</button>
-      </form>
+      <div class="chead"><h2>Fasta utgifter</h2><span class="muted small" id="fixTotal"></span></div>
+      <p class="muted small">Läggs in en gång och räknas som betalda när budgetmånaden börjar. Tryck på en rad för att ändra belopp, grupp eller hur ofta den kommer.</p>
+      <div id="fixList"></div>
+      <button class="btn" id="addFixBtn" type="button">+ Lägg till fast utgift</button>
     </div>
   </section>
 
@@ -130,10 +117,10 @@
       <label for="startDay" class="srow">Budgetmånaden börjar
         <select class="field auto" id="startDay">
           <option value="1">den 1:a</option>
-          <option value="25">den 25:e (lönedagen)</option>
+          <option value="25">på lönedagen</option>
         </select>
       </label>
-      <p class="muted small">Med lönedagen gäller till exempel oktober från 25 september till 24 oktober.</p>
+      <p class="muted small">Lönedagen är den 25:e, eller vardagen före om den 25:e är en lördag, söndag eller helgdag. November börjar till exempel fredag 23 oktober 2026. Tryck på datumet under månadens namn om lönen kommer en annan dag.</p>
       <button class="btn" id="csvBtn" type="button">Exportera månadens köp (CSV)</button>
     </div>
     <div class="card settings" id="account" hidden>
@@ -158,18 +145,19 @@
   <button role="tab" data-tab="tx" aria-selected="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg><span>Köp</span>
   </button>
-  <button role="tab" data-tab="budget" aria-selected="false">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5H12z"/><path d="M15 3.8A8.5 8.5 0 0 1 20.2 9H15z"/></svg><span>Budget</span>
+  <button role="tab" data-tab="fixed" aria-selected="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4.5h-4.5"/></svg><span>Fasta</span>
   </button>
   <button role="tab" data-tab="more" aria-selected="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg><span>Mer</span>
   </button>
 </nav>
 
-<div class="sheet" id="sheet" hidden>
-  <div class="scrim" id="scrim"></div>
-  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
-    <div class="shead"><span id="sheetTitle">Nytt köp</span><button class="del" id="sheetClose" type="button" aria-label="Stäng">×</button></div>
+<!-- Nytt eller ändrat köp -->
+<div class="sheet" id="txSheet" hidden>
+  <div class="scrim" data-close></div>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="qTitle">
+    <div class="shead"><span id="qTitle">Nytt köp</span><button class="del" type="button" data-close aria-label="Stäng">×</button></div>
     <div class="qamount" id="qAmount" aria-live="polite">0 kr</div>
     <div class="chips" id="qChips"></div>
     <select class="field" id="qCatAll" aria-label="Alla kategorier" hidden></select>
@@ -180,6 +168,9 @@
       <button type="button" data-k="7">7</button><button type="button" data-k="8">8</button><button type="button" data-k="9">9</button>
       <button type="button" data-k=",">,</button><button type="button" data-k="0">0</button><button type="button" data-k="del" aria-label="Radera">⌫</button>
     </div>
+    <label class="srow small" for="qMonth">Betalas
+      <select class="field auto" id="qMonth"></select>
+    </label>
     <details class="qmore" id="qMore">
       <summary>Anteckning och datum</summary>
       <div class="qfields">
@@ -188,6 +179,16 @@
       </div>
     </details>
     <button class="btn primary big" id="qSave" type="button">Spara köp</button>
+    <button class="btn danger" id="qDelete" type="button" hidden>Ta bort köpet</button>
+  </div>
+</div>
+
+<!-- Formulär: kategori, fast utgift, inkomst, lönedag -->
+<div class="sheet" id="formSheet" hidden>
+  <div class="scrim" data-close></div>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="fTitle">
+    <div class="shead"><span id="fTitle"></span><button class="del" type="button" data-close aria-label="Stäng">×</button></div>
+    <div id="fBody" class="fbody"></div>
   </div>
 </div>
 
