@@ -330,31 +330,58 @@
     store.months[PLAN] = p; savePlan();
   }
 
-  // Flyttar över budgetar från första versionen, där varje månad var en egen kopia.
-  function migrate() {
-    const keys = Object.keys(store.months).filter(k => /^\d{4}-\d{2}$/.test(k) && store.months[k] && store.months[k].v !== 2).sort();
-    if (!keys.length) return false;
-    const first = keys[0], now = currentKey();
-    const src = store.months[[...keys].reverse().find(k => k <= now) || keys[keys.length - 1]];
-    const p = { v: 2, since: first, groups: [...GROUPS], cats: [], fixed: [], income: [], paydays: {}, pots: [] };
-    for (const c of src.cats || []) {
-      if (c.group && !p.groups.includes(c.group)) p.groups.push(c.group);
-      if (c.fixed) p.fixed.push({ id: c.id, name: c.name, group: c.group, every: 1, start: first, amounts: [{ from: first, amount: c.planned || 0 }] });
-      else p.cats.push({ id: c.id, name: c.name, group: c.group, start: first, budgets: [{ from: first, amount: c.planned || 0 }] });
+  // ---------- grunduppgifterna ----------
+  // Första gången en version med ett nytt BASE öppnas rensas allt, och appen byggs upp från MIN_BUDGET.
+  const BASE = "2026-10-24";
+  const MIN_BUDGET = {
+    pots: ["Sparkonto", "Husvagn", "Fonder"],
+    // [namn, belopp per månad, grupp, sparkonto]
+    fixed: [
+      ["Hyra", 7658, "Boende"], ["El", 600, "Boende"], ["Internet", 299, "Boende"], ["Hemförsäkring", 121, "Boende"],
+      ["Lån husvagn", 1793, "Husvagn"], ["El husvagnen", 400, "Husvagn"], ["Husvagnsförsäkring", 93, "Husvagn"],
+      ["El bilen", 2000, "Transport"],
+      ["Telefoner", 826, "Abonnemang"], ["Glasögon", 499, "Abonnemang"],
+      ["A-kassa", 140, "Avgifter"], ["Facket", 235, "Avgifter"],
+      ["Spar", 1000, "Sparande", "Sparkonto"], ["Spar husvagn", 3000, "Sparande", "Husvagn"], ["Spar fonder", 500, "Sparande", "Fonder"]
+    ],
+    // [namn, budget per månad, grupp]
+    cats: [["Mat", 6000, "Mat & hushåll"]]
+  };
+  function buildBase() {
+    const K = currentKey();
+    const p = { v: 2, base: BASE, since: K, groups: ["Boende", "Husvagn", "Transport", "Mat & hushåll", "Abonnemang", "Avgifter", "Sparande", "Övrigt"], cats: [], fixed: [], income: [], paydays: {}, pots: [] };
+    for (const name of MIN_BUDGET.pots) p.pots.push({ id: rid(), name, goal: 0, moves: [] });
+    for (const [name, amount, group, pot] of MIN_BUDGET.fixed) {
+      const potId = pot ? p.pots.find(x => x.name === pot).id : undefined;
+      p.fixed.push({ id: rid(), name, group, every: 1, start: K, amounts: [{ from: K, amount }], pot: potId, potFrom: potId ? K : undefined });
     }
-    p.income = (src.income || []).map(i => ({ id: i.id, name: i.name, every: 1, start: first, amounts: [{ from: first, amount: i.amount || 0 }] }));
-    store.months[PLAN] = p; store.setMonth(PLAN, p);
-    const fixedIds = new Set(p.fixed.map(f => f.id));
-    for (const k of keys) {
-      const m = store.months[k], budgets = {};
-      for (const c of m.cats || []) {
-        const pc = p.cats.find(x => x.id === c.id);
-        if (pc && (c.planned || 0) !== amtAt(pc.budgets, k)) budgets[c.id] = c.planned || 0;
-      }
-      const tx = (m.tx || []).filter(t => !t.auto).map(t => ({ id: t.id, date: t.date, cat: fixedIds.has(t.cat) ? null : t.cat, note: t.note || "", amount: t.amount, at: t.at || 0 }));
-      store.setMonth(k, { v: 2, budgets, tx });
+    for (const [name, amount, group] of MIN_BUDGET.cats) p.cats.push({ id: rid(), name, group, start: K, budgets: [{ from: K, amount }] });
+    return p;
+  }
+  // Tar bort allt: köp, månader, kategorier, fasta utgifter, inkomster och sparkonton. Inställningarna behålls.
+  async function wipeAll() {
+    if (CLOUD) {
+      if (!store.user) throw new Error("Du är inte inloggad.");
+      if (!navigator.onLine) throw new Error("Du måste vara uppkopplad.");
+      const { error } = await store.sb.from("budget_months").delete().eq("user_id", store.user.id);
+      if (error) throw new Error("Kunde inte rensa: " + (error.message || "okänt fel"));
     }
-    return true;
+    store.months = {};
+    store.outbox = store.outbox.filter(o => o.k !== "m"); store.saveOutbox();
+    store.saveCache();
+  }
+  let resetting = false, resetFailed = false;
+  async function resetToBase() {
+    resetting = true; render();
+    try { await wipeAll(); }
+    catch (e) { resetting = false; resetFailed = true; toast(e.message + " Öppna appen igen när du är uppkopplad.", "bad", 6000); render(); return; }
+    sessionStorage.clear();
+    store.setMonth(PLAN, buildBase());
+    resetting = false;
+    tab = "fixed"; lsSet("hk-tab", tab);
+    document.querySelectorAll("#tabbar button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab ? "true" : "false"));
+    openMonth(currentKey());
+    toast("Appen är nollställd och dina uppgifter är inlagda", "", 5000);
   }
 
   // ---------- visning ----------
@@ -377,9 +404,13 @@
     try { if (fid && act.selectionStart != null) sel = [act.selectionStart, act.selectionEnd]; } catch {}
     $("login").hidden = true; $("tabbar").hidden = false;
     $("monthnav").hidden = tab === "spar";
-    if (!plan() && store.synced && migrate()) toast("Din budget är flyttad till den nya versionen", "", 4000);
-    const p = plan();
+    if (store.synced && !resetting && !resetFailed && plan()?.base !== BASE) { resetToBase(); return; }
     renderHeader();
+    if (resetting) {
+      for (const id of [...Object.values(TABS), "empty", "fab"]) $(id).hidden = true;
+      $("loading").hidden = false; return;
+    }
+    const p = plan();
     const waiting = !p && !store.synced;
     for (const [k, id] of Object.entries(TABS)) $(id).hidden = !(k === tab && (p || k === "more"));
     $("loading").hidden = !(waiting && tab !== "more");
@@ -798,8 +829,8 @@
       formMsg(),
       h("button", { class: "btn primary big", type: "button", text: "Spara", onclick: () => {
         const v = $("fDate").value; if (!v) return showMsg("Välj ett datum.");
-        const d = parseISO(v), prevStart = periodStart(shiftKey(cur, -1)), nextStart = periodStart(shiftKey(cur, 1));
-        if (d <= prevStart || d >= nextStart) return showMsg("Datumet måste ligga mellan förra och nästa lönedag.");
+        const d = parseISO(v);
+        if (Math.abs(d - auto) > 10 * 864e5) return showMsg(`Välj ett datum högst 10 dagar från ${auto.getDate()} ${MONTHS[auto.getMonth()]}.`);
         const before = snap();
         p.paydays ||= {};
         if (v === iso(auto)) delete p.paydays[cur]; else p.paydays[cur] = v;
@@ -816,8 +847,8 @@
     const pt = pots().find(x => x.id === potId), now = currentKey(), b = potBalance(pt);
     openForm(dir > 0 ? `Sätt in på ${pt.name}` : `Ta ut från ${pt.name}`, [
       h("p", { class: "note", text: dir > 0
-        ? `Pengarna tas från ${monthLabel(now)}s budget, så Kvar att spendera minskar lika mycket. Saldo nu: ${kr(b)}.`
-        : `Pengarna läggs till i ${monthLabel(now)}s budget, så Kvar att spendera ökar lika mycket. Saldo nu: ${kr(b)}.` }),
+        ? `Pengarna tas från budgeten för ${monthLabel(now)}, så Kvar att spendera minskar lika mycket. Saldo nu: ${kr(b)}.`
+        : `Pengarna läggs till i budgeten för ${monthLabel(now)}, så Kvar att spendera ökar lika mycket. Saldo nu: ${kr(b)}.` }),
       amountField("fAmount", "Belopp", 0),
       h("label", { class: "lf" }, "Anteckning (valfri)", h("input", { class: "field", id: "fNote", placeholder: dir > 0 ? "t.ex. Extra sparande" : "t.ex. Bilreparation" })),
       formMsg(),
@@ -923,76 +954,6 @@
         later)
     ]);
   }
-
-  // ---------- import ----------
-  // Koden är JSON: { bankboken: 1, fixed: [{ n, a, g, every?, pot? }], cats: [{ n, a, g }], pots: [{ n, goal? }] }
-  function parseImport(text) {
-    const s = text.trim(), i = s.indexOf("{"), j = s.lastIndexOf("}");
-    if (i < 0 || j < i) throw new Error("Hittade ingen importkod. Kopiera hela koden, från { till }.");
-    const d = JSON.parse(s.slice(i, j + 1));
-    if (d.bankboken !== 1) throw new Error("Det här är ingen importkod för Bankboken.");
-    const num = x => typeof x === "number" && x >= 0;
-    for (const f of [...(d.fixed || []), ...(d.cats || [])]) if (!f.n || !num(f.a)) throw new Error(`Raden "${f.n || "?"}" saknar namn eller belopp.`);
-    return { fixed: d.fixed || [], cats: d.cats || [], pots: d.pots || [] };
-  }
-  function runImport(d) {
-    if (!plan()) newPlan(false);
-    const p = plan(), K = currentKey(), same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
-    let added = 0, updated = 0;
-    const potId = name => {
-      let pt = pots().find(x => same(x.name, name));
-      if (!pt) { pt = { id: rid(), name, goal: 0, moves: [] }; pots().push(pt); }
-      return pt.id;
-    };
-    for (const pt of d.pots) { const id = potId(pt.n); if (pt.goal) pots().find(x => x.id === id).goal = pt.goal; }
-    const addGroup = g => { if (g && !p.groups.includes(g)) p.groups.push(g); };
-    // En rörlig kategori med samma namn som en fast utgift avslutas, så att den inte räknas två gånger.
-    const retireCat = name => {
-      for (const c of p.cats) if (same(c.name, name) && catVisible(c, K)) { if (c.start && c.start >= K) p.cats = p.cats.filter(y => y !== c); else c.end = shiftKey(K, -1); }
-    };
-    for (const x of d.fixed) {
-      addGroup(x.g); retireCat(x.n);
-      const pot = x.pot ? potId(x.pot) : undefined;
-      const f = p.fixed.find(y => same(y.name, x.n) && (!y.end || y.end >= K));
-      if (f) {
-        f.group = x.g || f.group; f.every = x.every || f.every || 1;
-        if (amtAt(f.amounts, K) !== x.a) f.amounts = setFrom(f.amounts, f.start > K ? f.start : K, x.a);
-        if (pot && f.pot !== pot) { f.pot = pot; f.potFrom = K; }
-        updated++;
-      } else {
-        p.fixed.push({ id: rid(), name: x.n, group: x.g || "Övrigt", every: x.every || 1, start: K, amounts: [{ from: K, amount: x.a }], pot, potFrom: pot ? K : undefined });
-        added++;
-      }
-    }
-    for (const x of d.cats) {
-      addGroup(x.g);
-      const c = p.cats.find(y => same(y.name, x.n) && catVisible(y, K));
-      if (c) { c.group = x.g || c.group; if (amtAt(c.budgets, K) !== x.a) c.budgets = setFrom(c.budgets, K, x.a); updated++; }
-      else { p.cats.push({ id: rid(), name: x.n, group: x.g || "Övrigt", start: K, budgets: [{ from: K, amount: x.a }] }); added++; }
-    }
-    savePlan();
-    return { added, updated, K };
-  }
-  $("importBtn").onclick = () => {
-    const msg = $("importMsg"); msg.hidden = true;
-    let d;
-    try { d = parseImport($("importText").value); } catch (e) { msg.textContent = e instanceof SyntaxError ? "Koden är inte komplett. Kopiera hela koden och försök igen." : e.message; msg.hidden = false; return; }
-    const K = currentKey(), fx = sum(d.fixed, x => (x.every || 1) === 1 ? x.a : 0);
-    openForm("Granska import", [
-      h("p", { class: "note", text: `${d.fixed.length} fasta utgifter (${kr(fx)} per månad), ${d.cats.length} ${d.cats.length === 1 ? "kategori" : "kategorier"} och ${d.pots.length} sparkonton. Gäller från och med ${monthLabel(K)}. Tidigare månader ändras inte.` }),
-      h("div", { class: "txlist" }, d.fixed.map(x => h("div", { class: "tx" },
-        h("div", { class: "n" }, h("b", { text: x.n }), h("span", { text: [x.g, x.pot ? `till ${x.pot}` : ""].filter(Boolean).join(" · ") })),
-        h("span", { class: "a", text: kr(x.a) }), h("span", {}))),
-        d.cats.map(x => h("div", { class: "tx" },
-          h("div", { class: "n" }, h("b", { text: x.n }), h("span", { text: `${x.g || ""} · budget per månad` })),
-          h("span", { class: "a", text: kr(x.a) }), h("span", {})))),
-      h("button", { class: "btn primary big", type: "button", text: "Importera", onclick: () => {
-        const before = snap(), r = runImport(d);
-        $("importText").value = ""; closeSheets(); openMonth(r.K); setTab("fixed");
-        toast(`Klart: ${r.added} tillagda, ${r.updated} uppdaterade`, "", 0, before);
-      } })
-    ]);
-  };
 
   // ---------- köp: lägg till och ändra ----------
   let qStr = "", qCat = null, qEdit = null;
