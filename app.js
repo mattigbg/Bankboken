@@ -318,7 +318,7 @@
   let tab = lsGet("hk-tab", "home");
   if (!["home", "tx", "fixed", "more"].includes(tab)) tab = "home";
   let rq = 0;
-  function queueRender() { cancelAnimationFrame(rq); rq = requestAnimationFrame(render); }
+  function queueRender() { clearTimeout(rq); rq = setTimeout(render, 0); }
   function openMonth(key) { cur = key; txFilter = ""; render(); }
   function setTab(t) {
     tab = t; lsSet("hk-tab", t);
@@ -356,10 +356,7 @@
     const range = store.settings.startDay === 1
       ? `1–${end.getDate()} ${MONTHS[start.getMonth()]}`
       : `Lön ${start.getDate()} ${SHORT[start.getMonth()]} – ${end.getDate()} ${SHORT[end.getMonth()]}`;
-    const pb = $("period");
-    pb.textContent = range + (e.f > 0 && e.f < 1 ? ` · dag ${e.day} av ${days}` : e.f === 0 ? " · inte påbörjad" : " · avslutad");
-    pb.classList.toggle("editable", store.settings.startDay === 25 && !!plan());
-    pb.setAttribute("aria-label", store.settings.startDay === 25 ? `Lönedag ${start.getDate()} ${MONTHS[start.getMonth()]}. Tryck för att ändra` : pb.textContent);
+    $("period").textContent = range + (e.f > 0 && e.f < 1 ? ` · dag ${e.day} av ${days}` : e.f === 0 ? " · inte påbörjad" : " · avslutad");
     $("todayBtn").hidden = cur === currentKey();
   }
 
@@ -417,21 +414,21 @@
       wrap.append(h("div", { class: "grp" },
         h("div", { class: "grph" }, h("h3", { text: g }), h("span", { text: `${kr(gs)} av ${kr(gb)}` })),
         cs.map(x => catLine(x, e.f)),
-        fs.map(x => h("button", { class: "hcat fixed", type: "button", onclick: () => setTab("fixed"), "aria-label": `${x.f.name}, fast utgift ${kr(x.amount)}, betald` },
+        fs.map(x => h("div", { class: "hcat fixed" },
           h("div", { class: "r1" }, h("span", { class: "nm", text: x.f.name }), h("span", { class: "lf2 mute-t", text: kr(x.amount) })),
           h("div", { class: "r3" }, h("span", { text: "Fast utgift · betald" }))))));
     }
     if (mm.loose) wrap.append(h("div", { class: "grp" },
-      h("button", { class: "hcat", type: "button", onclick: () => { txFilter = "_none"; setTab("tx"); } },
+      h("div", { class: "hcat" },
         h("div", { class: "r1" }, h("span", { class: "nm", text: "Utan kategori" }), h("span", { class: "lf2 mute-t", text: kr(mm.loose) })),
-        h("div", { class: "r3" }, h("span", { text: "Tryck för att se köpen och flytta dem" })))));
+        h("div", { class: "r3" }, h("span", { text: "Flytta köpen till rätt kategori under fliken Köp" })))));
     if (!wrap.children.length) wrap.append(h("p", { class: "muted", text: "Inga kategorier än. Lägg till dem under fliken Budget." }));
   }
 
   function catLine(x, f) {
     const st = catState(x.budget, x.spent, f), [lt, lk] = leftText(x.budget, x.spent);
     const r = x.budget > 0 ? Math.min(x.spent / x.budget, 1) : (x.spent > 0 ? 1 : 0);
-    return h("button", { class: "hcat", type: "button", onclick: () => { txFilter = x.c.id; setTab("tx"); }, "aria-label": `${x.c.name}: ${lt}. Visa köpen` },
+    return h("div", { class: "hcat" },
       h("div", { class: "r1" }, h("span", { class: "nm", text: x.c.name }), h("span", { class: "lf2 " + (lk === "mute" ? "mute-t" : st + "-t"), text: lt })),
       h("div", { class: "cbar" }, h("div", { class: "fill " + (st === "ok" ? "" : st), style: `width:${r * 100}%` }),
         f > 0 && f < 1 && x.budget > 0 ? h("div", { class: "pace", style: `left:calc(${f * 100}% - 1px)` }) : null),
@@ -492,6 +489,11 @@
   function renderFixed(mm) {
     const p = plan();
     const active = list => list.filter(x => !x.end || x.end >= cur);
+    $("paydayCard").hidden = store.settings.startDay !== 25;
+    if (store.settings.startDay === 25) {
+      const s = periodStart(cur), changed = !!p.paydays?.[cur];
+      $("paydayText").textContent = `Lönen för ${monthLabel(cur)} kommer ${s.getDate()} ${MONTHS[s.getMonth()]}` + (changed ? " (ändrat för den här månaden)." : " (automatiskt: den 25:e, eller vardagen före vid helg eller helgdag).");
+    }
     $("incTotal").textContent = `${kr(mm.inc)} denna månad`;
     const inc = active(p.income);
     $("incList").replaceChildren(...(inc.length ? inc.map(i => h("button", { class: "frow" + (occurs(i, cur) ? "" : " off"), type: "button", onclick: () => openFixSheet(i.id, "income") },
@@ -825,7 +827,7 @@
   $("prevBtn").onclick = () => openMonth(shiftKey(cur, -1));
   $("nextBtn").onclick = () => openMonth(shiftKey(cur, 1));
   $("todayBtn").onclick = () => openMonth(currentKey());
-  $("period").onclick = openPaydaySheet;
+  $("paydayBtn").onclick = openPaydaySheet;
   $("templateBtn").onclick = () => newPlan(true);
   $("blankBtn").onclick = () => newPlan(false);
   $("addCatBtn").onclick = () => openCatSheet(null);

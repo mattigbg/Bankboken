@@ -184,9 +184,8 @@ dialog::backdrop{background:rgba(8,16,24,.45)}
 .toast.bad{background:var(--bad);color:var(--surface)}
 
 /* lönedag i huvudet */
-.period{border:0;background:none;color:var(--ink-2);font-size:13px;cursor:pointer;padding:2px 6px;border-radius:8px}
-.period.editable{text-decoration:underline dotted;text-underline-offset:3px}
-.period:hover{color:var(--ink)}
+.period{color:var(--ink-2);font-size:13px;padding:2px 6px}
+div.hcat{cursor:default}
 
 /* sammanfattning i fyra rutor */
 .minis{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;padding:14px 16px}

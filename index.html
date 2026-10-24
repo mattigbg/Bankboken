@@ -26,7 +26,7 @@
     <button class="navbtn" id="prevBtn" aria-label="Föregående månad">‹</button>
     <div class="mt">
       <h1 id="monthTitle">&nbsp;</h1>
-      <button class="period" id="period" type="button"></button>
+      <span class="period" id="period"></span>
     </div>
     <button class="navbtn" id="nextBtn" aria-label="Nästa månad">›</button>
   </div>
@@ -74,7 +74,7 @@
     <div class="card minis" id="hMinis"></div>
 
     <div class="card">
-      <div class="chead"><h2>Kategorier</h2><span class="muted small">Tryck för att se köpen</span></div>
+      <div class="chead"><h2>Kategorier</h2></div>
       <div class="colhead"><span>Spenderat av budget</span><span>Kvar</span></div>
       <div id="hGroups"></div>
     </div>
@@ -96,6 +96,10 @@
 
   <!-- Budget: inkomster, fasta utgifter och budget per kategori -->
   <section id="vFixed" class="view" hidden>
+    <div class="card" id="paydayCard" hidden>
+      <div class="chead"><h2>Lönedag</h2><button class="btn" id="paydayBtn" type="button">Ändra</button></div>
+      <p class="muted small" id="paydayText"></p>
+    </div>
     <div class="card">
       <div class="chead"><h2>Inkomster</h2><span class="muted small" id="incTotal"></span></div>
       <div id="incList" class="txlist"></div>
@@ -125,7 +129,7 @@
           <option value="25">på lönedagen</option>
         </select>
       </label>
-      <p class="muted small">Lönedagen är den 25:e, eller vardagen före om den 25:e är en lördag, söndag eller helgdag. November börjar till exempel fredag 23 oktober 2026. Tryck på datumet under månadens namn om lönen kommer en annan dag.</p>
+      <p class="muted small">Lönedagen är den 25:e, eller vardagen före om den 25:e är en lördag, söndag eller helgdag. November börjar till exempel fredag 23 oktober 2026. Kommer lönen en annan dag ändrar du det under fliken Budget.</p>
       <p class="muted small">Inkomster, fasta utgifter och budget per kategori ändrar du under fliken Budget. Köp lägger du till och ändrar under fliken Köp.</p>
       <button class="btn" id="csvBtn" type="button">Exportera månadens köp (CSV)</button>
     </div>
