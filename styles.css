@@ -226,6 +226,37 @@ div.hcat{cursor:default}
 .stats3 span{font-size:11.5px;color:var(--ink-2)}
 .note{font-size:13px;color:var(--ink-2);margin:0}
 
+/* fem flikar */
+.tabbar{grid-template-columns:repeat(5,1fr)}
+.tabbar button{font-size:11px}
+
+/* ångra i meddelandet */
+.toast{display:flex;align-items:center;gap:14px}
+.toast .undo{border:0;background:none;color:inherit;font:inherit;font-weight:700;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:4px 2px;white-space:nowrap}
+
+/* överföringar i översikten */
+.hextra{margin:2px 0 0;font-size:13px;color:var(--ink-2)}
+
+/* budgetfliken */
+.banner{border-radius:12px;padding:10px 14px;font-size:14px;background:var(--accent-soft);color:var(--accent);font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.banner.locked{background:var(--warn-soft);color:var(--warn)}
+.banner button{border:0;background:var(--surface);color:inherit;border-radius:999px;padding:4px 12px;font-weight:600;cursor:pointer}
+div.frow{cursor:default}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--surface-2);border-radius:12px;padding:4px}
+.seg button{border:0;background:transparent;border-radius:9px;padding:9px 6px;font-size:13.5px;cursor:pointer;color:var(--ink-2)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(8,20,30,.12)}
+
+/* spar */
+.pot{gap:10px}
+.pot .ph{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.pot .ph h2{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pot .bal{font-family:var(--f-display);font-size:26px;font-weight:700;white-space:nowrap}
+.pot .goal{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-2)}
+.pot .row .btn{flex:1}
+.closebox{display:grid;gap:10px}
+textarea.field{font-family:var(--f-mono);font-size:13px;resize:vertical}
+.closebox .opts{display:grid;gap:8px}
+
 @media (prefers-reduced-motion:no-preference){
   .hbar .fill,.cbar .fill{transition:width .35s ease}
   .panel{animation:up .22s ease-out}

@@ -67,6 +67,7 @@
       <span class="label">Kvar att spendera</span>
       <div class="big" id="hLeft">0 kr</div>
       <div id="hDaily"></div>
+      <p class="hextra" id="hExtra" hidden></p>
       <div class="hbar" role="img" id="hBarWrap"><div class="fill" id="hFill"></div><div class="pace" id="hPace" hidden></div></div>
       <div class="hmeta"><span id="hSpent"></span><span id="hPayday"></span></div>
     </div>
@@ -87,6 +88,11 @@
       <p class="muted small" id="txSum"></p>
       <div class="txlist" id="txList"></div>
     </div>
+    <div class="card" id="xferCard" hidden>
+      <div class="chead"><h2>Överföringar</h2></div>
+      <p class="muted small">Pengar som flyttats in i eller ut ur månadens budget, till exempel från förra månaden eller till ett sparkonto.</p>
+      <div class="txlist" id="xferList"></div>
+    </div>
     <div class="card" id="upcomingCard">
       <div class="chead"><h2>Kommande räkningar</h2></div>
       <p class="muted small">Köp och räkningar du har lagt in för senare månader. Välj månad under <b>Betalas</b> när du lägger till ett köp.</p>
@@ -96,6 +102,7 @@
 
   <!-- Budget: inkomster, fasta utgifter och budget per kategori -->
   <section id="vFixed" class="view" hidden>
+    <div class="banner" id="budgetBanner"></div>
     <div class="card" id="paydayCard" hidden>
       <div class="chead"><h2>Lönedag</h2><button class="btn" id="paydayBtn" type="button">Ändra</button></div>
       <p class="muted small" id="paydayText"></p>
@@ -119,6 +126,18 @@
     </div>
   </section>
 
+  <!-- Spar -->
+  <section id="vSpar" class="view" hidden>
+    <div class="card hero">
+      <span class="label">Sparat totalt</span>
+      <div class="big" id="sTotal">0 kr</div>
+      <p class="muted small" id="sSub"></p>
+    </div>
+    <div class="card" id="closeCard" hidden></div>
+    <div id="potList" class="view"></div>
+    <button class="btn" id="addPotBtn" type="button">+ Nytt sparkonto</button>
+  </section>
+
   <!-- Mer -->
   <section id="vMore" class="view" hidden>
     <div class="card settings">
@@ -132,6 +151,13 @@
       <p class="muted small">Lönedagen är den 25:e, eller vardagen före om den 25:e är en lördag, söndag eller helgdag. November börjar till exempel fredag 23 oktober 2026. Kommer lönen en annan dag ändrar du det under fliken Budget.</p>
       <p class="muted small">Inkomster, fasta utgifter och budget per kategori ändrar du under fliken Budget. Köp lägger du till och ändrar under fliken Köp.</p>
       <button class="btn" id="csvBtn" type="button">Exportera månadens köp (CSV)</button>
+    </div>
+    <div class="card settings">
+      <h2>Importera</h2>
+      <p class="muted small">Klistra in en importkod för att lägga in fasta utgifter, kategorier och sparkonton på en gång. Finns något med samma namn redan uppdateras det i stället för att läggas till två gånger.</p>
+      <textarea class="field" id="importText" rows="4" placeholder="Klistra in koden här" aria-label="Importkod"></textarea>
+      <button class="btn" id="importBtn" type="button">Granska import</button>
+      <p class="msg" id="importMsg" hidden></p>
     </div>
     <div class="card settings" id="account" hidden>
       <h2>Konto</h2>
@@ -157,6 +183,9 @@
   </button>
   <button role="tab" data-tab="fixed" aria-selected="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5H12z"/><path d="M15 3.8A8.5 8.5 0 0 1 20.2 9H15z"/></svg><span>Budget</span>
+  </button>
+  <button role="tab" data-tab="spar" aria-selected="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6.5" rx="7" ry="2.8"/><path d="M5 6.5v5c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-5"/><path d="M5 11.5v5c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-5"/></svg><span>Spar</span>
   </button>
   <button role="tab" data-tab="more" aria-selected="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg><span>Mer</span>
