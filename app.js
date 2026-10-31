@@ -323,7 +323,7 @@
   }
 
   function newPlan(useTemplate) {
-    const K = cur, p = { v: 2, since: K, groups: [...GROUPS], cats: [], fixed: [], income: [], paydays: {}, pots: [] };
+    const K = cur, p = { v: 2, base: BASE, since: K, groups: [...GROUPS], cats: [], fixed: [], income: [], paydays: {}, pots: [] };
     p.income = TEMPLATE.income.map(([name, a]) => ({ id: rid(), name, every: 1, start: K, amounts: [{ from: K, amount: useTemplate ? a : 0 }] }));
     if (useTemplate) p.fixed = TEMPLATE.fixed.map(([name, group, a]) => ({ id: rid(), name, group, every: 1, start: K, amounts: [{ from: K, amount: a }] }));
     p.cats = TEMPLATE.cats.map(([name, group, a]) => ({ id: rid(), name, group, start: K, budgets: [{ from: K, amount: useTemplate ? a : 0 }] }));
@@ -404,7 +404,8 @@
     try { if (fid && act.selectionStart != null) sel = [act.selectionStart, act.selectionEnd]; } catch {}
     $("login").hidden = true; $("tabbar").hidden = false;
     $("monthnav").hidden = tab === "spar";
-    if (store.synced && !resetting && !resetFailed && plan()?.base !== BASE) { resetToBase(); return; }
+    // Grunduppgifterna läggs bara in på konton som redan hade data. Ett nytt konto får börja från början.
+    if (store.synced && !resetting && !resetFailed && Object.keys(store.months).length && plan()?.base !== BASE) { resetToBase(); return; }
     renderHeader();
     if (resetting) {
       for (const id of [...Object.values(TABS), "empty", "fab"]) $(id).hidden = true;
