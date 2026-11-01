@@ -69,20 +69,24 @@
 
   <!-- Översikt -->
   <section id="vHome" class="view" hidden>
-    <div class="card hero">
-      <span class="label">Kvar att spendera</span>
-      <div class="big" id="hLeft">0 kr</div>
-      <div id="hDaily"></div>
+    <div class="card">
+      <div class="chead"><h2>Kvar i budgeten</h2><span class="muted small" id="hPayday"></span></div>
+      <div class="colhead"><span>Spenderat av budget</span><span>Kvar</span></div>
+      <div id="hCats" class="hcats"></div>
+      <div class="htotal"><span>Totalt kvar i budgeten</span><b id="hLeft">0 kr</b></div>
       <p class="hextra" id="hExtra" hidden></p>
-      <div class="hbar" role="img" id="hBarWrap"><div class="fill" id="hFill"></div><div class="pace" id="hPace" hidden></div></div>
-      <div class="hmeta"><span id="hSpent"></span><span id="hPayday"></span></div>
+    </div>
+
+    <div class="card unbox">
+      <span class="label" id="hUnLabel">Ofördelat</span>
+      <div class="big" id="hUn">0 kr</div>
+      <p class="muted small" id="hUnText"></p>
     </div>
 
     <div class="card minis" id="hMinis"></div>
 
     <div class="card">
-      <div class="chead"><h2>Kategorier</h2></div>
-      <div class="colhead"><span>Spenderat av budget</span><span>Kvar</span></div>
+      <div class="chead"><h2>Fasta utgifter</h2><span class="muted small" id="hFixTotal"></span></div>
       <div id="hGroups"></div>
     </div>
   </section>

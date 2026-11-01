@@ -295,7 +295,12 @@
     let loose = 0;
     for (const t of tx) { const x = byId[t.cat]; if (x) x.spent += t.amount; else loose += t.amount; }
     const inc = sum(income, x => x.amount), fx = sum(fixed, x => x.amount), cb = sum(cats, x => x.budget), txs = sum(tx, t => t.amount), ex = sum(extra, e => e.amount);
-    return { key, doc, tx, extra, income, fixed, cats, byId, loose, inc, fx, cb, txs, ex, left: cb - txs + ex, unassigned: inc - fx - cb };
+    // reserved: det som är kvar i kategorier med budget. over: köp utöver budget, och köp utan budget eller kategori.
+    // free: pengar utan plan, minus det som har gått utöver budget, plus överföringar in i månaden.
+    // reserved + free = allt som är kvar av månadens pengar (inkomster − fasta − köp + överföringar).
+    const reserved = sum(cats, x => Math.max(x.budget - x.spent, 0)), over = sum(cats, x => Math.max(x.spent - x.budget, 0)) + loose;
+    const free = inc - fx - cb - over + ex;
+    return { key, doc, tx, extra, income, fixed, cats, byId, loose, inc, fx, cb, txs, ex, reserved, over, free, left: reserved + free, unassigned: inc - fx - cb };
   }
   const groupsOf = (p, extra) => [...p.groups, ...new Set(extra.filter(g => g && !p.groups.includes(g)))];
 
@@ -443,70 +448,67 @@
   // Status: ok, warn (snabbare än månaden eller under 10 % kvar) eller bad (över).
   function catState(budget, spent, f) {
     const left = budget - spent, ratio = budget > 0 ? spent / budget : (spent > 0 ? 2 : 0);
-    if (budget > 0 && left < -0.005) return "bad";
+    if (left < -0.005) return "bad"; // över budget, eller köp i en kategori utan budget
     if (budget > 0 && left > 0.005 && (left / budget < 0.1 || (f > 0 && f < 1 && ratio > f + 0.15))) return "warn";
     return "ok";
   }
   function leftText(budget, spent) {
     const left = budget - spent;
     if (budget === 0 && spent === 0) return ["–", "mute"];
-    if (budget === 0) return ["Ej budgeterat", "mute"];
+    if (budget === 0) return [`${kr(spent)} utan budget`, "bad"];
     if (Math.abs(left) < 0.005) return ["Klart", "mute"];
     return left > 0 ? [`${kr(left)} kvar`, null] : [`${kr(-left)} över`, "bad"];
   }
 
   // Översikten är bara till för att läsa av: inga knappar.
   function renderHome(mm) {
-    const p = plan(), e = elapsed(cur), left = mm.left;
-    $("hLeft").textContent = kr(left); $("hLeft").classList.toggle("neg", left < 0);
-    let daily;
-    if (e.f > 0 && e.f < 1) {
-      const daysLeft = e.days - e.day + 1;
-      daily = left > 0
-        ? h("span", { class: "pill " + (catState(mm.cb + mm.ex, mm.txs, e.f) === "warn" ? "warn" : "ok"), text: `≈ ${kr(Math.floor(left / daysLeft))} per dag i ${daysLeft} ${daysLeft === 1 ? "dag" : "dagar"}` })
-        : h("span", { class: "pill bad", text: "Budgeten är slut för den här månaden" });
-    } else if (e.f === 0) daily = h("span", { class: "pill mute", text: "Månaden har inte börjat än" });
-    else daily = h("span", { class: "pill " + (left >= 0 ? "ok" : "bad"), text: left >= 0 ? `Månaden slutade med ${kr(left)} kvar` : `Månaden slutade ${kr(-left)} över budget` });
-    $("hDaily").replaceChildren(daily);
-    const he = $("hExtra"); he.hidden = !mm.extra.length;
-    he.textContent = mm.extra.length ? "Inklusive " + mm.extra.map(x => `${x.amount > 0 ? "+" : "−"}${kr(Math.abs(x.amount))} ${x.note.charAt(0).toLowerCase() + x.note.slice(1)}`).join(", ") : "";
-
-    const avail = mm.cb + mm.ex;
-    const ratio = avail > 0 ? Math.min(mm.txs / avail, 1) : (mm.txs > 0 ? 1 : 0);
-    $("hFill").style.width = ratio * 100 + "%";
-    $("hFill").classList.toggle("bad", mm.txs > avail);
-    $("hPace").hidden = !(e.f > 0 && e.f < 1 && avail > 0);
-    $("hPace").style.left = `calc(${e.f * 100}% - 1px)`;
-    $("hBarWrap").setAttribute("aria-label", `${kr(mm.txs)} spenderat av ${kr(avail)}`);
-    $("hSpent").textContent = `${kr(mm.txs)} av ${kr(avail)} spenderat`;
+    const p = plan(), e = elapsed(cur), order = c => { const i = p.groups.indexOf(c.group); return i < 0 ? 99 : i; };
     const next = periodStart(shiftKey(cur, 1));
     $("hPayday").textContent = store.settings.startDay === 25 ? `Nästa lön ${next.getDate()} ${SHORT[next.getMonth()]}` : `Slutar ${period(cur).end.getDate()} ${SHORT[period(cur).end.getMonth()]}`;
 
-    const un = Math.round(mm.unassigned * 100) / 100;
+    // 1. Kvar i budgeten, per rörlig kategori
+    const cats = mm.cats.slice().sort((a, b) => order(a.c) - order(b.c));
+    const rows = cats.map(x => catLine(x, e.f));
+    if (mm.loose) rows.push(h("div", { class: "hcat" },
+      h("div", { class: "r1" }, h("span", { class: "nm", text: "Utan kategori" }), h("span", { class: "lf2 mute-t", text: `${kr(mm.loose)} spenderat` })),
+      h("div", { class: "r3" }, h("span", { text: "Flytta köpen till rätt kategori under fliken Köp" }))));
+    $("hCats").replaceChildren(...(rows.length ? rows : [h("p", { class: "muted", text: "Inga rörliga kategorier än. Lägg till dem under fliken Budget." })]));
+    $("hLeft").textContent = kr(mm.reserved); $("hLeft").className = "";
+    $("hExtra").hidden = true;
+
+    // 2. Fritt att använda: pengar utan plan, minus det som har gått utöver budget
+    const free = Math.round(mm.free * 100) / 100;
+    $("hUnLabel").textContent = free < 0 ? "Över det du har" : "Fritt att använda";
+    $("hUn").textContent = kr(Math.abs(free));
+    $("hUn").className = "big " + (free < 0 ? "bad-t" : free === 0 ? "ok-t" : "warn-t");
+    const overList = [...mm.cats.filter(x => x.spent - x.budget > 0.005).map(x => `${x.c.name} ${kr(x.spent - x.budget)}`), mm.loose ? `utan kategori ${kr(mm.loose)}` : null].filter(Boolean);
+    const lines = [];
+    lines.push(free > 0 ? "Pengar som inte har någon plan den här månaden. Köp utan budget dras härifrån."
+      : free === 0 ? "Inga fria pengar kvar. Varje krona har en uppgift."
+        : "Du har använt mer än du har den här månaden. Det tas från pengarna som är budgeterade för annat.");
+    if (overList.length) lines.push(`Utöver budget: ${overList.join(", ")}.`);
+    if (mm.extra.length) lines.push("Inklusive " + mm.extra.map(x => `${x.amount > 0 ? "+" : "−"}${kr(Math.abs(x.amount))} ${x.note.charAt(0).toLowerCase() + x.note.slice(1)}`).join(", ") + ".");
+    $("hUnText").replaceChildren(...lines.map((t, i) => h("span", { class: "unline" + (i === 1 && overList.length ? " bad-t" : ""), text: t })));
+
+    // 3. Fyra rutor
     $("hMinis").replaceChildren(
       h("div", { class: "mini" }, h("span", { class: "label", text: "Inkomster" }), h("b", { text: kr(mm.inc) })),
       h("div", { class: "mini" }, h("span", { class: "label", text: "Fasta utgifter" }), h("b", { text: kr(mm.fx) })),
       h("div", { class: "mini" }, h("span", { class: "label", text: "Rörlig budget" }), h("b", { text: kr(mm.cb) })),
-      h("div", { class: "mini" }, h("span", { class: "label", text: un < 0 ? "Överfördelat" : "Ofördelat" }), h("b", { class: un === 0 ? "ok-t" : un > 0 ? "warn-t" : "bad-t", text: kr(Math.abs(un)) })));
+      h("div", { class: "mini" }, h("span", { class: "label", text: "Spenderat" }), h("b", { text: kr(mm.txs) })));
 
+    // 4. Fasta utgifter, gruppvis
+    $("hFixTotal").textContent = `${kr(mm.fx)} · betalda`;
     const wrap = $("hGroups"); wrap.replaceChildren();
-    const groups = groupsOf(p, [...mm.fixed.map(x => x.f.group), ...mm.cats.map(x => x.c.group)]);
-    for (const g of groups) {
-      const fs = mm.fixed.filter(x => x.f.group === g), cs = mm.cats.filter(x => x.c.group === g);
-      if (!fs.length && !cs.length) continue;
-      const gb = sum(fs, x => x.amount) + sum(cs, x => x.budget), gs = sum(fs, x => x.amount) + sum(cs, x => x.spent);
+    for (const g of groupsOf(p, mm.fixed.map(x => x.f.group))) {
+      const fs = mm.fixed.filter(x => x.f.group === g); if (!fs.length) continue;
       wrap.append(h("div", { class: "grp" },
-        h("div", { class: "grph" }, h("h3", { text: g }), h("span", { text: `${kr(gs)} av ${kr(gb)}` })),
-        cs.map(x => catLine(x, e.f)),
+        h("div", { class: "grph" }, h("h3", { text: g }), h("span", { text: kr(sum(fs, x => x.amount)) })),
         fs.map(x => h("div", { class: "hcat fixed" },
           h("div", { class: "r1" }, h("span", { class: "nm", text: x.f.name }), h("span", { class: "lf2 mute-t", text: kr(x.amount) })),
           h("div", { class: "r3" }, h("span", { text: x.f.pot ? "Fast sparande · betalt" : "Fast utgift · betald" }))))));
     }
-    if (mm.loose) wrap.append(h("div", { class: "grp" },
-      h("div", { class: "hcat" },
-        h("div", { class: "r1" }, h("span", { class: "nm", text: "Utan kategori" }), h("span", { class: "lf2 mute-t", text: kr(mm.loose) })),
-        h("div", { class: "r3" }, h("span", { text: "Flytta köpen till rätt kategori under fliken Köp" })))));
-    if (!wrap.children.length) wrap.append(h("p", { class: "muted", text: "Inga kategorier än. Lägg till dem under fliken Budget." }));
+    if (!wrap.children.length) wrap.append(h("p", { class: "muted", text: "Inga fasta utgifter den här månaden." }));
   }
 
   function catLine(x, f) {
@@ -1162,8 +1164,8 @@
     };
     const later = h("button", { class: "btn ghost", type: "button", text: "Påminn mig senare", onclick: () => { sessionStorage.setItem("hk-close-" + prev, "1"); closeSheets(); } });
     const stats = h("div", { class: "stats3" },
-      h("div", {}, h("b", { text: kr(mm.cb + mm.ex) }), h("span", { text: "Rörlig budget" })),
-      h("div", {}, h("b", { text: kr(mm.txs) }), h("span", { text: "Spenderat" })),
+      h("div", {}, h("b", { text: kr(mm.inc + mm.ex) }), h("span", { text: "Inkomster" })),
+      h("div", {}, h("b", { text: kr(mm.fx + mm.txs) }), h("span", { text: "Utgifter" })),
       h("div", {}, h("b", { class: left >= 0 ? "ok-t" : "bad-t", text: kr(left) }), h("span", { text: left >= 0 ? "Kvar" : "Över" })));
 
     if (left === 0) {
