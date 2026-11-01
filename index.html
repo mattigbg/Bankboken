@@ -21,7 +21,13 @@
 </head>
 <body>
 <header class="top">
-  <div class="bar"><b class="logo">Bankboken</b><span class="sync" id="sync">Startar…</span></div>
+  <div class="bar"><b class="logo">Bankboken</b>
+    <div class="row"><span class="sync" id="sync">Startar…</span>
+      <button class="gear" id="gearBtn" type="button" aria-label="Inställningar och konto" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>
+      </button>
+    </div>
+  </div>
   <div class="monthnav" id="monthnav" hidden>
     <button class="navbtn" id="prevBtn" aria-label="Föregående månad">‹</button>
     <div class="mt">
@@ -138,7 +144,12 @@
     <button class="btn" id="addPotBtn" type="button">+ Nytt sparkonto</button>
   </section>
 
-  <!-- Mer -->
+  <!-- Veckospar -->
+  <section id="vVecko" class="view" hidden>
+    <div id="weeklyView" class="view"></div>
+  </section>
+
+  <!-- Mer (öppnas med kugghjulet) -->
   <section id="vMore" class="view" hidden>
     <div class="card settings">
       <h2>Inställningar</h2>
@@ -180,8 +191,8 @@
   <button role="tab" data-tab="spar" aria-selected="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6.5" rx="7" ry="2.8"/><path d="M5 6.5v5c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-5"/><path d="M5 11.5v5c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-5"/></svg><span>Spar</span>
   </button>
-  <button role="tab" data-tab="more" aria-selected="false">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg><span>Mer</span>
+  <button role="tab" data-tab="vecko" aria-selected="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="5.5"/><path d="M12 9.5v5M10.3 11h2.9a1 1 0 0 1 0 2h-2"/></svg><span>Veckospar</span>
   </button>
 </nav>
 

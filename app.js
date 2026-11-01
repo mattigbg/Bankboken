@@ -387,7 +387,7 @@
   // ---------- visning ----------
   let cur = null, txFilter = "";
   let tab = lsGet("hk-tab", "home");
-  const TABS = { home: "vHome", tx: "vTx", fixed: "vFixed", spar: "vSpar", more: "vMore" };
+  const TABS = { home: "vHome", tx: "vTx", fixed: "vFixed", spar: "vSpar", vecko: "vVecko", more: "vMore" };
   if (!TABS[tab]) tab = "home";
   let rq = 0, closeAsked = false;
   function queueRender() { clearTimeout(rq); rq = setTimeout(render, 0); }
@@ -402,8 +402,9 @@
     if (!cur) return;
     const act = document.activeElement, fid = act && act.id; let sel = null;
     try { if (fid && act.selectionStart != null) sel = [act.selectionStart, act.selectionEnd]; } catch {}
-    $("login").hidden = true; $("tabbar").hidden = false;
-    $("monthnav").hidden = tab === "spar";
+    $("login").hidden = true; $("tabbar").hidden = false; $("gearBtn").hidden = false;
+    $("monthnav").hidden = ["spar", "vecko", "more"].includes(tab);
+    $("gearBtn").classList.toggle("on", tab === "more");
     // Grunduppgifterna läggs bara in på konton som redan hade data. Ett nytt konto får börja från början.
     if (store.synced && !resetting && !resetFailed && Object.keys(store.months).length && plan()?.base !== BASE) { resetToBase(); return; }
     renderHeader();
@@ -423,6 +424,7 @@
       if (tab === "tx") renderTx(mm);
       if (tab === "fixed") renderFixed(mm);
       if (tab === "spar") renderSpar();
+      if (tab === "vecko") renderWeekly();
       maybeAskClose();
     }
     if (fid) { const el = $(fid); if (el && el !== document.activeElement) { el.focus({ preventScroll: true }); if (sel) try { el.setSelectionRange(...sel); } catch {} } }
@@ -435,7 +437,7 @@
       ? `1–${end.getDate()} ${MONTHS[start.getMonth()]}`
       : `Lön ${start.getDate()} ${SHORT[start.getMonth()]} – ${end.getDate()} ${SHORT[end.getMonth()]}`;
     $("period").textContent = range + (e.f > 0 && e.f < 1 ? ` · dag ${e.day} av ${days}` : e.f === 0 ? " · inte påbörjad" : " · avslutad");
-    $("todayBtn").hidden = cur === currentKey() || tab === "spar";
+    $("todayBtn").hidden = cur === currentKey() || ["spar", "vecko", "more"].includes(tab);
   }
 
   // Status: ok, warn (snabbare än månaden eller under 10 % kvar) eller bad (över).
@@ -657,6 +659,248 @@
           h("button", { class: "btn", type: "button", text: "Ta ut", onclick: () => openMoveSheet(pt.id, -1) }),
           h("button", { class: "btn ghost", type: "button", text: "Mer", onclick: () => openPotSheet(pt.id) })));
     }));
+  }
+
+  // ---------- veckospar ----------
+  // Ett bräde per år med en bricka per vecka. Beloppen slumpas fram så att de tillsammans blir årsmålet.
+  // Brickan vänds när pengarna förs över; beloppet läggs på sparkontot. Budgeten tas av den fasta utgiften Veckospar.
+  function isoWeek(d) {
+    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())), day = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - day);
+    const y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return { year: t.getUTCFullYear(), week: Math.ceil(((t - y0) / 864e5 + 1) / 7) };
+  }
+  function weekMonday(year, w) {
+    const jan4 = new Date(year, 0, 4), mon = addDays(jan4, -((jan4.getDay() + 6) % 7));
+    return addDays(mon, (w - 1) * 7);
+  }
+  // n slumpade heltal mellan min och max som tillsammans blir exakt total.
+  function randomSplit(total, n, min = 10, max = 400) {
+    total = Math.round(total);
+    if (n <= 0) return [];
+    if (n * min > total) min = Math.floor(total / n);
+    if (n * max < total) max = Math.ceil(total / n);
+    const a = Array.from({ length: n }, () => min + Math.floor(Math.random() * (max - min + 1)));
+    let diff = total - a.reduce((s, x) => s + x, 0), guard = 0;
+    while (diff !== 0 && guard++ < 200000) {
+      const i = Math.floor(Math.random() * n), step = 1 + Math.floor(Math.random() * 25);
+      if (diff > 0 && a[i] < max) { const s = Math.min(diff, max - a[i], step); a[i] += s; diff -= s; }
+      else if (diff < 0 && a[i] > min) { const s = Math.min(-diff, a[i] - min, step); a[i] -= s; diff += s; }
+    }
+    return a;
+  }
+  const makeTiles = (fromWeek, total) => {
+    if (!(total > 0)) return [];
+    const weeks = Array.from({ length: Math.max(0, 52 - fromWeek + 1) }, (_, i) => fromWeek + i);
+    const amounts = randomSplit(total, weeks.length);
+    return weeks.map((w, i) => ({ w, a: amounts[i], done: false }));
+  };
+  const boardSaved = b => (b.start || 0) + sum(b.tiles.filter(t => t.done), t => t.a);
+  let lastFlip = null;
+
+  // Läser in en lista med belopp, t.ex. "320, 333 248;179".
+  function parseAmounts(text) {
+    const parts = String(text || "").split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+    const out = [];
+    for (const s of parts) { const v = parseKr(s); if (Number.isNaN(v) || !(v > 0)) return null; out.push(v); }
+    return out.length ? out : null;
+  }
+  // Lägger egna belopp på brädet så att sista brickan hamnar på vecka 52. Vända brickor ligger kvar.
+  function applyCustom(b, amounts) {
+    const done = b.tiles.filter(t => t.done), used = new Set(done.map(t => t.w)), weeks = [];
+    for (let w = 52; weeks.length < amounts.length && w >= 1; w--) if (!used.has(w)) weeks.unshift(w);
+    if (weeks.length < amounts.length) return false;
+    b.tiles = [...done, ...amounts.map((a, i) => ({ w: weeks[i], a, done: false }))].sort((x, y) => x.w - y.w);
+    b.goal = (b.start || 0) + sum(b.tiles, t => t.a);
+    return true;
+  }
+  function currentBoard() {
+    const p = plan(), wk = p.weekly, now = isoWeek(today0()), Y = String(now.year);
+    // Nytt år: ett nytt bräde med 52 brickor slumpas fram automatiskt.
+    if (!wk.years[Y] && Number(Y) > Math.max(...Object.keys(wk.years).map(Number))) {
+      wk.years[Y] = { start: 0, goal: wk.goal, tiles: makeTiles(1, wk.goal) };
+      store.setMonth(PLAN, p);
+    }
+    const key = wk.years[Y] ? Y : Object.keys(wk.years).sort().pop();
+    return { Y: key, b: wk.years[key], now };
+  }
+
+  function renderWeekly() {
+    const p = plan(), wk = p.weekly, view = $("weeklyView");
+    if (!wk) {
+      view.replaceChildren(h("div", { class: "card wk-empty" },
+        h("div", { class: "coinbig", "aria-hidden": "true" }, h("span", { text: "kr" })),
+        h("h2", { text: "Veckospar" }),
+        h("p", { class: "muted", text: "Spara en summa varje vecka tills du når ditt årsmål. Varje vecka vänder du ett mynt och för över beloppet till sparkontot." }),
+        h("button", { class: "btn primary big", type: "button", text: "Starta veckospar", onclick: openWeeklySetup })));
+      return;
+    }
+    const { Y, b, now } = currentBoard();
+    const thisYear = Number(Y) === now.year;
+    const saved = boardSaved(b), goal = b.goal || 1, pct = Math.max(0, Math.min(saved / goal, 1));
+    const left = b.tiles.filter(t => !t.done), late = left.filter(t => thisYear && t.w < now.week);
+    const done = b.tiles.filter(t => t.done);
+    // Veckor i rad: räknas bakåt från denna vecka (eller förra, om denna inte är vänd än).
+    let streak = 0, w = now.week;
+    const at = n => b.tiles.find(t => t.w === n);
+    if (thisYear && at(w) && !at(w).done) w--;
+    while (thisYear && at(w) && at(w).done) { streak++; w--; }
+
+    const jar = h("div", { class: "bigjar", role: "img", "aria-label": `${kr(saved)} av ${kr(goal)} sparat` },
+      h("div", { class: "lid" }), h("div", { class: "glass" }, h("div", { class: "lvl", style: `height:${pct * 100}%` }),
+        h("div", { class: "pct", text: `${Math.round(pct * 100)} %` })));
+    if (lastFlip) jar.querySelector(".glass").append(h("span", { class: "coin" }));
+
+    const coins = b.tiles.map(t => {
+      const locked = !t.done && thisYear && t.w > now.week;
+      const isLate = !t.done && thisYear && t.w < now.week, cur = !t.done && thisYear && t.w === now.week;
+      const flipNow = lastFlip && lastFlip.y === Y && lastFlip.w === t.w;
+      const opens = locked ? weekMonday(Number(Y), t.w) : null;
+      const el = h("button", {
+        class: "mcoin" + (t.done && !flipNow ? " done" : "") + (locked ? " locked" : "") + (isLate ? " late" : "") + (cur ? " now" : ""), type: "button",
+        "aria-label": t.done ? `Vecka ${t.w}: ${kr(t.a)} sparat` : locked ? `Vecka ${t.w}, öppnar ${opens.getDate()} ${MONTHS[opens.getMonth()]}` : `Vecka ${t.w}, vänd myntet`,
+        onclick: () => flipTile(Y, t.w)
+      }, h("span", { class: "in", "aria-hidden": "true" },
+        h("span", { class: "f" }, h("small", { text: "vecka" }), h("b", { text: String(t.w) }),
+          locked ? h("small", { text: `${opens.getDate()}/${opens.getMonth() + 1}` }) : isLate ? h("small", { text: "väntar" }) : cur ? h("small", { text: "nu" }) : null),
+        h("span", { class: "b" }, h("b", { text: nf0.format(t.a) }), h("small", { text: "kr" }))));
+      if (flipNow) setTimeout(() => el.classList.add("done", "flipping"), 40);
+      return el;
+    });
+    const wasLast = lastFlip && !left.length;
+    lastFlip = null;
+
+    view.replaceChildren(
+      h("div", { class: "card wk-hero" },
+        jar,
+        h("div", { class: "wk-sum" },
+          h("span", { class: "label", text: `Veckospar ${Y}` }),
+          h("b", { class: "wk-big", text: kr(saved) }),
+          h("span", { class: "muted small", text: `av ${kr(goal)}` }),
+          left.length
+            ? h("span", { class: "pill " + (late.length ? "warn" : "ok"), text: late.length ? `${late.length} ${late.length === 1 ? "vecka" : "veckor"} att ta igen` : `${kr(sum(left, t => t.a))} kvar i år` })
+            : h("span", { class: "pill ok", text: "Årets mål är nått!" }))),
+      h("div", { class: "wk-stats" },
+        h("div", {}, h("b", { text: String(streak) }), h("span", { text: streak === 1 ? "vecka i rad" : "veckor i rad" })),
+        h("div", {}, h("b", { text: `${done.length}/${b.tiles.length}` }), h("span", { text: "mynt vända" })),
+        h("div", {}, h("b", { text: done.length ? nf0.format(Math.max(...done.map(t => t.a))) : "–" }), h("span", { text: "största (kr)" }))),
+      h("div", { class: "card" },
+        h("div", { class: "chead" }, h("h2", { text: "Veckans mynt" }), h("span", { class: "muted small", text: "Tryck för att vända" })),
+        h("div", { class: "coinboard" }, coins)),
+      h("button", { class: "btn", type: "button", text: "Inställningar för veckospar", onclick: openWeeklySettings }));
+    if (wasLast) confetti();
+  }
+
+  function confetti() {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const box = h("div", { class: "confetti", "aria-hidden": "true" });
+    const colors = ["#E7B93E", "#0B5D6B", "#5DBECB", "#2E7A4D", "#F27B71"];
+    for (let i = 0; i < 60; i++) box.append(h("i", { style: `left:${Math.random() * 100}%;background:${colors[i % colors.length]};animation-delay:${Math.random() * .6}s;animation-duration:${1.8 + Math.random() * 1.4}s;transform:rotate(${Math.random() * 360}deg)` }));
+    document.body.append(box);
+    setTimeout(() => box.remove(), 3800);
+  }
+
+  function flipTile(Y, w) {
+    const p = plan(), b = p.weekly.years[Y], t = b.tiles.find(x => x.w === w), now = isoWeek(today0());
+    if (t.done) { toast(`Vecka ${w}: ${kr(t.a)} är redan sparat`); return; }
+    if (Number(Y) === now.year && w > now.week) { const m = weekMonday(Number(Y), w); toast(`Vecka ${w} öppnar måndag ${m.getDate()} ${MONTHS[m.getMonth()]}`); return; }
+    const pot = pots().find(x => x.id === p.weekly.pot);
+    if (!pot) { toast("Sparkontot för veckosparet finns inte längre. Välj ett nytt under Inställningar.", "bad", 5000); return; }
+    const before = snap();
+    t.done = true; t.at = iso(today0());
+    (pot.moves ||= []).push({ id: rid(), amount: t.a, month: currentKey(), date: t.at, note: `Veckospar vecka ${w}` });
+    lastFlip = { y: Y, w };
+    savePlan();
+    toast(`${kr(t.a)} till ${pot.name}. För över beloppet i banken.`, "", 0, before);
+  }
+
+  function openWeeklySetup() {
+    const now = isoWeek(today0()), K = currentKey();
+    const fromSel = h("select", { class: "field", id: "fFrom" }, Array.from({ length: 52 }, (_, i) => h("option", { value: String(i + 1), text: `Vecka ${i + 1}` })));
+    fromSel.value = String(Math.min(now.week, 52));
+    const budgetCb = h("input", { type: "checkbox", id: "fBudget", checked: true });
+    openForm("Starta veckospar", [
+      h("p", { class: "note", text: "Varje vecka får ett mynt till och med vecka 52. Beloppen slumpas fram, högst 400 kr per vecka, och blir tillsammans exakt det som är kvar till målet. Har du redan egna belopp kan du skriva in dem i stället. Varje januari slumpas ett nytt bräde med 52 mynt." }),
+      amountField("fGoal", "Årsmål", 10000),
+      amountField("fSaved", `Redan sparat i år (${now.year})`, 0),
+      h("label", { class: "lf" }, "Egna belopp för resten av året (valfritt)",
+        h("textarea", { class: "field", id: "fCustom", rows: "3", placeholder: "t.ex. 320, 333, 248, 179" })),
+      h("p", { class: "note", text: "Med egna belopp hamnar det sista på vecka 52, och årsmålet blir det du har sparat plus beloppen." }),
+      h("label", { class: "lf" }, "Första veckan (om beloppen slumpas)", fromSel),
+      h("label", { class: "radio" }, budgetCb, "Avsätt pengarna i budgeten som en fast utgift varje månad"),
+      formMsg(),
+      h("button", { class: "btn primary big", type: "button", text: "Starta", onclick: () => {
+        const goal = parseKr($("fGoal").value), saved = parseKr($("fSaved").value), from = Number(fromSel.value);
+        const customText = $("fCustom").value.trim(), custom = customText ? parseAmounts(customText) : null;
+        if (!(goal > 0)) return showMsg("Skriv ett årsmål, t.ex. 10000.");
+        if (Number.isNaN(saved) || saved < 0) return showMsg("Skriv hur mycket du redan har sparat, eller 0.");
+        if (customText && !custom) return showMsg("Egna belopp ska vara tal skilda med komma eller mellanslag, t.ex. 320, 333, 248.");
+        if (custom && custom.length > 52) return showMsg("Det får vara högst 52 belopp.");
+        const rest = Math.max(goal - saved, 0), weeks = 52 - from + 1;
+        if (!custom && rest > weeks * 400) return showMsg(`${kr(rest)} på ${weeks} veckor blir mer än 400 kr i veckan. Välj en tidigare första vecka eller ett lägre mål.`);
+        const before = snap(), p = plan();
+        let pot = pots().find(x => x.name.toLowerCase() === "veckospar");
+        if (!pot) { pot = { id: rid(), name: "Veckospar", goal: 0, moves: [] }; pots().push(pot); }
+        if (saved) (pot.moves ||= []).push({ id: rid(), amount: saved, month: K, date: iso(today0()), note: "Sparat i år innan appen" });
+        const board = { start: saved, goal, tiles: [] };
+        if (custom) applyCustom(board, custom); else board.tiles = makeTiles(from, rest);
+        const wk = { pot: pot.id, goal, years: { [String(now.year)]: board } };
+        if (budgetCb.checked) {
+          const f = { id: rid(), name: "Veckospar", group: "Sparande", every: 1, start: K, amounts: [{ from: K, amount: Math.ceil(goal / 12) }] };
+          if (!p.groups.includes("Sparande")) p.groups.push("Sparande");
+          p.fixed.push(f); wk.fixed = f.id;
+        }
+        p.weekly = wk;
+        savePlan(); closeSheets(); toast("Veckosparet är startat", "", 0, before);
+      } })
+    ], "fGoal");
+  }
+
+  function openWeeklySettings() {
+    const p = plan(), wk = p.weekly, { b } = currentBoard();
+    const pf = potField("Sparkonto", wk.pot, false);
+    const open = b ? b.tiles.filter(t => !t.done) : [];
+    openForm("Inställningar för veckospar", [
+      h("label", { class: "lf" }, "Egna belopp för mynten som är kvar",
+        h("textarea", { class: "field", id: "fCustom", rows: "3", value: open.map(t => nf0.format(t.a)).join(", ") })),
+      h("p", { class: "note", text: "Skriv beloppen skilda med komma. Det sista hamnar på vecka 52, och årets mål räknas om. Vända mynt påverkas inte." }),
+      h("button", { class: "btn", type: "button", text: "Använd mina belopp", onclick: () => {
+        const custom = parseAmounts($("fCustom").value);
+        if (!custom) return showMsg("Skriv tal skilda med komma, t.ex. 320, 333, 248.");
+        const before = snap();
+        if (!applyCustom(b, custom)) { restore(before); return showMsg("Det får inte plats så många belopp före vecka 52."); }
+        savePlan(); closeSheets(); toast(`${custom.length} mynt med dina belopp`, "", 0, before);
+      } }),
+      h("button", { class: "btn", type: "button", text: "Slumpa om mynten som är kvar", onclick: () => {
+        if (!b) return;
+        const before = snap(), amounts = randomSplit(Math.max(b.goal - boardSaved(b), 0), open.length);
+        open.forEach((t, i) => { t.a = amounts[i]; });
+        savePlan(); closeSheets(); toast("Nya belopp på mynten", "", 0, before);
+      } }),
+      amountField("fGoal", "Årsmål från nästa år", wk.goal),
+      h("p", { class: "note", text: "Varje januari slumpas 52 mynt som blir årsmålet tillsammans. Den fasta utgiften i budgeten ändras till årsmålet delat med 12 från och med den här månaden." }),
+      pf.el,
+      formMsg(),
+      h("button", { class: "btn primary big", type: "button", text: "Spara", onclick: () => {
+        const goal = parseKr($("fGoal").value); if (!(goal > 0)) return showMsg("Skriv ett årsmål, t.ex. 10000.");
+        if (goal > 52 * 400) return showMsg(`Högst ${kr(52 * 400)} per år, eftersom ett mynt är högst 400 kr.`);
+        const before = snap(), potId = pf.get(); if (!potId) return showMsg(potId === undefined ? "Skriv ett namn på det nya sparkontot." : "Välj ett sparkonto.");
+        wk.pot = potId;
+        if (goal !== wk.goal) {
+          wk.goal = goal;
+          const f = p.fixed.find(x => x.id === wk.fixed);
+          if (f) f.amounts = setFrom(f.amounts, currentKey(), Math.ceil(goal / 12));
+        }
+        savePlan(); closeSheets(); toast("Sparat", "", 0, before);
+      } }),
+      h("button", { class: "btn danger", type: "button", text: "Avsluta veckosparet", onclick: () => {
+        const before = snap();
+        const f = p.fixed.find(x => x.id === wk.fixed);
+        if (f) { if (f.start >= currentKey()) p.fixed = p.fixed.filter(x => x !== f); else f.end = shiftKey(currentKey(), -1); }
+        delete p.weekly;
+        savePlan(); closeSheets(); toast("Veckosparet är avslutat. Sparkontot finns kvar.", "", 0, before);
+      } })
+    ]);
   }
 
   // Frågar en gång per besök om förra månaden inte är avslutad.
@@ -1092,6 +1336,7 @@
 
   // ---------- händelser ----------
   document.querySelectorAll("#tabbar button").forEach(b => { b.onclick = () => setTab(b.dataset.tab); });
+  $("gearBtn").onclick = () => setTab(tab === "more" ? "home" : "more");
   $("prevBtn").onclick = () => openMonth(shiftKey(cur, -1));
   $("nextBtn").onclick = () => openMonth(shiftKey(cur, 1));
   $("todayBtn").onclick = () => openMonth(currentKey());
@@ -1140,7 +1385,7 @@
 
   // ---------- inloggning ----------
   function showLogin(message) {
-    ["loading", "empty", ...Object.values(TABS), "monthnav", "tabbar", "fab", "todayBtn"].forEach(id => { $(id).hidden = true; });
+    ["loading", "empty", ...Object.values(TABS), "monthnav", "tabbar", "fab", "todayBtn", "gearBtn"].forEach(id => { $(id).hidden = true; });
     closeSheets();
     $("login").hidden = false;
     const err = $("loginErr"); err.hidden = !message; err.textContent = message || "";
